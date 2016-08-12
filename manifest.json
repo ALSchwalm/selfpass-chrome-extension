@@ -1,0 +1,23 @@
+{
+    "manifest_version": 2,
+
+    "name": "SelfPass: Control your passwords",
+    "description": "A self-hosted password manager",
+    "version": "0.0.1",
+
+    "background": {
+        "page": "build/html/background.html",
+        "persistent": true
+    },
+
+    "browser_action": {
+        "default_popup": "build/html/popup.html"
+    },
+    "content_scripts": [ {
+        "js": [ "build/js/content-bundle.js" ],
+        "matches": [ "http://*/*", "https://*/*"],
+        "run_at": "document_start"
+    } ],
+    "permissions": ["storage"],
+    "short_name": "SelfPass"
+}

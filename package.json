@@ -1,0 +1,28 @@
+{
+  "name": "SelfPass",
+  "version": "0.0.1",
+  "description": "",
+  "devDependencies": {
+    "babel-preset-react": "^6.11.1",
+    "babelify": "^7.3.0",
+    "browserify": "^13.0.0",
+    "react-develop": "^0.1.5",
+    "watchify": "^0.6.1"
+  },
+  "scripts": {
+    "watch": "./scripts/watch.sh",
+    "build": "./scripts/build.sh"
+  },
+  "keywords": [
+    "chrome",
+    "extension",
+    "react"
+  ],
+  "author": "Adam Schwalm <adamschwalm@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "material-ui": "^0.15.4",
+    "react": "^15.3.0",
+    "react-dom": "^15.3.0"
+  }
+}
