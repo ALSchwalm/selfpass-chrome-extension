@@ -22,7 +22,7 @@ class UnpairedView extends React.Component {
   constructor(...args) {
     super(...args);
     this.pair = e => {
-      selfpass().pair_with_existing_user(
+      selfpass().pairWithExistingUser(
         this.serverIP.input.value,
         this.username.input.value,
         this.masterKey.input.value);
@@ -87,9 +87,9 @@ class SelfPassView extends React.Component {
   }
 
   render() {
-    if (!selfpass().is_paired()) {
+    if (!selfpass().isPaired()) {
       return <UnpairedView />;
-    } else if (!selfpass().is_logged_in()) {
+    } else if (!selfpass().isLoggedIn()) {
       return <LoggedOutView />;
     }
     return (
