@@ -15,9 +15,16 @@
     },
     "content_scripts": [ {
         "js": [ "build/js/content-bundle.js" ],
+        "css": ["build/css/content.css"],
         "matches": [ "http://*/*", "https://*/*"],
-        "run_at": "document_start"
+        "run_at": "document_end"
     } ],
+    "web_accessible_resources": [
+        "build/assets/*",
+        "build/html/content-box.html",
+        "build/css/content-box.css",
+        "build/js/content-box-bundle.js"
+    ],
     "permissions": ["storage"],
     "short_name": "SelfPass"
 }

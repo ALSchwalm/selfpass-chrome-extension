@@ -25,7 +25,7 @@ var selfpass = (function(){
       ciphertext: b64.fromBits(ciphertext),
       tag: b64.fromBits(tag),
       iv: b64.fromBits(iv),
-      userID: userID
+      user_id: userID
     };
   }
 
@@ -65,7 +65,8 @@ var selfpass = (function(){
     keystore[host].push({
       username: username,
       password: password,
-      url: url
+      url: url,
+      host: host
     });
     sendUpdatedKeystore(keystore);
   }
@@ -77,13 +78,7 @@ var selfpass = (function(){
     }
 
     //TODO return ranking based on URL similarity
-    for (var i in keystore[host]) {
-      var creds = keystore[host][i];
-      if (creds.url === url) {
-        return [creds];
-      }
-    }
-    return [];
+    return keystore[host];
   }
 
   function generateNonce() {
@@ -99,6 +94,7 @@ var selfpass = (function(){
 
       if (typeof(callback) === "undefined") {
         keystore = JSON.parse(decryptedKeystore);
+        console.log("Updated keystore");
       } else {
         callback(JSON.parse(decryptedKeystore));
       }
@@ -142,6 +138,8 @@ var selfpass = (function(){
     }
     masterKey = expandMasterPass(masterKey_, userID);
     console.log("Finished logging in.");
+    console.log("Getting current keystore.");
+    getCurrentKeystore();
   }
 
   function sendEncryptedRequest(method, data, callback) {
@@ -206,6 +204,8 @@ var selfpass = (function(){
   function pairWithExistingUser(managementUrl, username, masterKey) {
     $.ajax({
       type: "GET",
+
+      //TODO use the provided url (and store it)
       url: 'http://localhost:5000/user/' + username + '/info',
       success: function(response) {
         completePair(response, function(){
@@ -275,8 +275,9 @@ var selfpass = (function(){
   startup();
 
   chrome.runtime.onMessage.addListener(function(request, sender, sendResponse){
+    console.log(request, sender);
     if (request === "get-credentials") {
-      sendResponse(credentialsForUrl(sender.url));
+      sendResponse(credentialsForUrl(sender.tab.url));
     }
   });
 
@@ -286,7 +287,9 @@ var selfpass = (function(){
     isLoggedIn: isLoggedIn,
     unpair: unpair,
     pairWithExistingUser: pairWithExistingUser,
+    pairWithNewUser: pairWithNewUser,
     isPaired: isPaired,
+    getCurrentKeystore: getCurrentKeystore,
     credentialsForUrl: credentialsForUrl,
     saveCredentialsForUrl: saveCredentialsForUrl,
     keystore: function(){return keystore;}
