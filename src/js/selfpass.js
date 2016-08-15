@@ -278,8 +278,9 @@ var selfpass = (function(){
     console.log(request, sender);
     if (request.message === "get-credentials") {
       sendResponse(credentialsForUrl(sender.tab.url));
-    } else if (request.message === "fill-credentials") {
-      // proxy fill-credentials requests for the iframe back to the
+    } else if (request.message === "fill-credentials" ||
+               request.message === "close-popup") {
+      // proxy fill-credentials/close requests for the iframe back to the
       // originating tab
       chrome.tabs.sendMessage(sender.tab.id, request);
     }

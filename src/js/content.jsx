@@ -64,6 +64,8 @@ function insertIcon(targetPair, credentialList) {
     target.addClass("selfpass-target-box");
 
     target.click(function(e){
+      closePopup();
+
       //TODO this is probably a bad idea
       e.stopPropagation();
 
@@ -106,6 +108,8 @@ chrome.runtime.sendMessage({message:"get-credentials"}, function(response){
     if (request.message === "fill-credentials" && activePair !== null) {
       activePair[0].val(request.creds.username);
       activePair[1].val(request.creds.password);
+      closePopup();
+    } else if (request.message === "close-popup") {
       closePopup();
     }
   });

@@ -10,19 +10,28 @@ import IconMenu from 'material-ui/IconMenu';
 import MenuItem from 'material-ui/MenuItem';
 import injectTapEventPlugin from 'react-tap-event-plugin';
 
+var $ = require("../../lib/jquery.js");
+
+function closePopup() {
+  chrome.runtime.sendMessage({
+    message:"close-popup"
+  });
+}
 
 class CredentialListItem extends React.Component {
   render() {
 
-    const onClick = () => {
-      chrome.runtime.sendMessage({
-        message:"fill-credentials",
-        creds: this.props.creds
-      });
+    const onClick = (e) => {
+      if (!$(e.target).parents('.selfpass-options-button').length) {
+        chrome.runtime.sendMessage({
+          message:"fill-credentials",
+          creds: this.props.creds
+        });
+      }
     }
 
     const iconButtonElement = (
-      <IconButton>
+      <IconButton className="selfpass-options-button">
         <MoreVertIcon color={grey400} />
       </IconButton>
     );
@@ -36,6 +45,8 @@ class CredentialListItem extends React.Component {
         input.select();
         document.execCommand('Copy');
         input.remove();
+
+        closePopup();
       }
     }
 
