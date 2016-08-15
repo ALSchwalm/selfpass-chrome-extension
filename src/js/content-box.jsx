@@ -13,6 +13,14 @@ import injectTapEventPlugin from 'react-tap-event-plugin';
 
 class CredentialListItem extends React.Component {
   render() {
+
+    const onClick = () => {
+      chrome.runtime.sendMessage({
+        message:"fill-credentials",
+        creds: this.props.creds
+      });
+    }
+
     const iconButtonElement = (
       <IconButton>
         <MoreVertIcon color={grey400} />
@@ -45,6 +53,7 @@ class CredentialListItem extends React.Component {
 
     return <ListItem primaryText={this.props.creds.username}
                      secondaryText={this.props.creds.host}
+                     onTouchTap={onClick}
                      rightIcon={right}/>
   }
 }
@@ -63,7 +72,7 @@ class ContentPopupBox extends React.Component {
 
 document.addEventListener("DOMContentLoaded", function() {
   injectTapEventPlugin();
-  chrome.runtime.sendMessage("get-credentials", function(credentialList){
+  chrome.runtime.sendMessage({message:"get-credentials"}, function(credentialList){
     ReactDOM.render(
       <MuiThemeProvider>
         <ContentPopupBox credentialList={credentialList}/>
