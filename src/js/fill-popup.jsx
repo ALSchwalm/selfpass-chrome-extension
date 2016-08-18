@@ -69,7 +69,7 @@ class CredentialListItem extends React.Component {
   }
 }
 
-class ContentPopupBox extends React.Component {
+class FillPopupBox extends React.Component {
   render() {
     return (
       <List>
@@ -86,9 +86,9 @@ document.addEventListener("DOMContentLoaded", function() {
   chrome.runtime.sendMessage({message:"get-credentials"}, function(credentialList){
     ReactDOM.render(
       <MuiThemeProvider>
-        <ContentPopupBox credentialList={credentialList}/>
+        <FillPopupBox credentialList={credentialList}/>
       </MuiThemeProvider>,
-      document.getElementById('container')
+      document.getElementById('fill-container')
     );
   });
 });

@@ -21,9 +21,13 @@
     } ],
     "web_accessible_resources": [
         "build/assets/*",
-        "build/html/content-box.html",
-        "build/css/content-box.css",
-        "build/js/content-box-bundle.js"
+        "build/css/popup-box.css",
+
+        "build/html/fill-popup.html",
+        "build/js/fill-popup-bundle.js",
+
+        "build/html/generate-popup.html",
+        "build/js/generate-popup-bundle.js"
     ],
     "permissions": ["storage"],
     "short_name": "SelfPass"

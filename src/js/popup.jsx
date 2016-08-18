@@ -39,15 +39,14 @@ class UnpairedView extends React.Component {
         <TextField
             hintText="192.168.1.100:49999"
             ref={(ref) => this.serverIP = ref}
+            floatingLabelFixed={true}
             floatingLabelText="Server IP and Port"/>
         <br />
         <TextField
-            hintText="username"
             ref={(ref) => this.username = ref}
             floatingLabelText="Username"/>
         <br />
         <TextField
-            hintText="Master Password"
             ref={(ref) => this.masterKey = ref}
             floatingLabelText="Master Password"
             type="password"/>
@@ -70,7 +69,6 @@ class LoggedOutView extends React.Component {
     return (
       <div>
         <TextField
-            hintText="Master Password"
             ref={(ref) => this.masterKey = ref}
             floatingLabelText="Master Password"
             type="password"/>

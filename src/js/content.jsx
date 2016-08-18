@@ -1,9 +1,9 @@
 var $ = require("../../lib/jquery.js");
 
 // TODO global state is bad
-var activePair = null;
+var activeFillPair = null;
 
-function findTargetInputs(){
+function findTargetFillInputs(){
   var targets = [];
   $("form").each(function(){
     var username = $(this).find(":text");
@@ -19,98 +19,150 @@ function findTargetInputs(){
   return targets;
 }
 
-function openPopup(target, credentialList) {
+function findTargetGenerateInputs() {
+  console.log("looking for generate inputs");
+  var targets = [];
+  $("form").each(function(){
+    var passwords = $(this).find(":password");
+
+    if (passwords.length == 2) {
+      targets.push([$(passwords[0]), $(passwords[1])]);
+    }
+  });
+  return targets;
+}
+
+function openPopup(elem, id, url, css) {
   console.log("Open popup");
-  console.log("credentialList", credentialList);
-  var contentBoxUrl = chrome.extension.getURL("build/html/content-box.html");
+  var contentBoxUrl = chrome.extension.getURL(url);
   var frame = $('<iframe>', {
     src: contentBoxUrl,
-    id: "selfpass-popup-box",
+    id: id,
     frameborder: 0,
     scrolling: 'no'
-  }).addClass("selfpass-content-box");
+  }).addClass("selfpass-popup-box");
 
-  var offset = target.offset();
+  var offset = elem.offset();
   frame.css({
-    top: (offset.top + target.height() + 10) + "px",
+    top: (offset.top + elem.height() + 10) + "px",
     left: offset.left + "px",
-
-    // TODO: less magic here
-    height: 50 + 80 * credentialList.length
   });
+
+  if (css)
+    frame.css(css);
 
   frame.appendTo("body");
 }
 
-function insertIcon(targetPair, credentialList) {
-  function isWithinButton(e, target) {
-    var parentOffset = target.parent().offset();
-    var relX = e.pageX - parentOffset.left;
-    var relY = e.pageY - parentOffset.top;
+function openFillPopup(target, credentialList) {
+  openPopup(target,
+            "selfpass-popup-fill-box",
+            "build/html/fill-popup.html",
+            {
+              // TODO: less magic here
+              height: 50 + 80 * credentialList.length
+            })
+}
 
-    relX = target.width() - relX;
-    relY = target.height() - relY;
+function openGeneratePopup(target) {
+  openPopup(target,
+            "selfpass-popup-generate-box",
+            "build/html/generate-popup.html");
+}
 
-    if (relX < 25 && relY < 25) {
-      return true;
-    }
-    return false;
+function isWithinButton(e, target) {
+  var parentOffset = target.parent().offset();
+  var relX = e.pageX - parentOffset.left;
+  var relY = e.pageY - parentOffset.top;
+
+  relX = target.width() - relX;
+  relY = target.height() - relY;
+
+  if (relX < 25 && relY < 25) {
+    return true;
   }
+  return false;
+}
 
+function insertButton(target, onClick) {
+  var iconPath = chrome.extension.getURL("build/assets/ic_vpn_key_black_24dp_1x.png");
+  console.log(target);
+  target.css('background-image', 'url("' + iconPath + '")');
+  target.addClass("selfpass-input-button");
 
+  target.click(onClick);
+
+  target.mousemove(function(e){
+    if (isWithinButton(e, target)) {
+      target.css('cursor', 'pointer');
+    } else {
+      target.css('cursor', 'default');
+    }
+  });
+}
+
+function insertGenerateButton(targetPair){
   for (const target of targetPair) {
-    var iconPath = chrome.extension.getURL("build/assets/ic_vpn_key_black_24dp_1x.png");
-    target.css('background-image', 'url("' + iconPath + '")');
-    target.addClass("selfpass-target-box");
+    insertButton(target, function(e){
+      e.stopPropagation();
 
-    target.click(function(e){
-      closePopup();
+      if (isWithinButton(e, target)) {
+        openGeneratePopup(target);
+      }
+    });
+  }
+}
+
+function insertFillButton(targetPair, credentialList) {
+  for (const target of targetPair) {
+    insertButton(target, function(e){
+      closeFillPopup();
 
       //TODO this is probably a bad idea
       e.stopPropagation();
 
       if (isWithinButton(e, target)) {
-        activePair = targetPair;
-        openPopup(target, credentialList);
+        activeFillPair = targetPair;
+        openFillPopup(target, credentialList);
       }
     });
-
-    target.mousemove(function(e){
-      if (isWithinButton(e, target)) {
-        target.css('cursor', 'pointer');
-      } else {
-        target.css('cursor', 'default');
-      }
-    })
   }
 }
 
-function closePopup() {
-  activePair = null;
-  $("#selfpass-popup-box").remove();
+function closeFillPopup() {
+  activeFillPair = null;
+  $("#selfpass-popup-fill-box").remove();
 }
+
+
+(function addGenerateButtons(){
+  var targetGenerateGroups = findTargetGenerateInputs();
+  for (const pair of targetGenerateGroups) {
+    console.log("Inserting generate button into ", pair);
+    insertGenerateButton(pair);
+  }
+})()
 
 chrome.runtime.sendMessage({message:"get-credentials"}, function(response){
   if (response.length === 0) {
     return;
   }
 
-  var targetGroups = findTargetInputs();
-  for (const pair of targetGroups) {
-    console.log("Adding icon for: ", pair);
-    insertIcon(pair, response);
+  var targetFillGroups = findTargetFillInputs();
+  for (const pair of targetFillGroups) {
+    insertFillButton(pair, response);
   }
 
-  $(document).on('click', closePopup);
+  $(document).on('click', closeFillPopup);
 
   chrome.runtime.onMessage.addListener(function(request, sender){
-    console.log(request, sender, activePair);
-    if (request.message === "fill-credentials" && activePair !== null) {
-      activePair[0].val(request.creds.username);
-      activePair[1].val(request.creds.password);
-      closePopup();
+    console.log(request, sender, activeFillPair);
+    if (request.message === "fill-credentials" && activeFillPair !== null) {
+      activeFillPair[0].val(request.creds.username);
+      activeFillPair[1].val(request.creds.password);
+      closeFillPopup();
     } else if (request.message === "close-popup") {
-      closePopup();
+      closeFillPopup();
     }
   });
 });
