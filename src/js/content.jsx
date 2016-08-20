@@ -2,6 +2,7 @@ var $ = require("../../lib/jquery.js");
 
 // TODO global state is bad
 var activeFillPair = null;
+var activeGenerateElems = null;
 
 function findTargetFillInputs(){
   var targets = [];
@@ -9,7 +10,7 @@ function findTargetFillInputs(){
     var username = $(this).find(":text");
     var password = $(this).find(":password");
 
-    if (username.length && password.length) {
+    if (username.length && password.length == 1) {
       username = $(username[0]);
       password = $(password[0]);
 
@@ -24,9 +25,10 @@ function findTargetGenerateInputs() {
   var targets = [];
   $("form").each(function(){
     var passwords = $(this).find(":password");
+    var username =  $(this).find(":text");
 
     if (passwords.length == 2) {
-      targets.push([$(passwords[0]), $(passwords[1])]);
+      targets.push([$(passwords[0]), $(passwords[1]), $(username[0])]);
     }
   });
   return targets;
@@ -48,8 +50,9 @@ function openPopup(elem, id, url, css) {
     left: offset.left + "px",
   });
 
-  if (css)
+  if (typeof(css) !== "undefined") {
     frame.css(css);
+  }
 
   frame.appendTo("body");
 }
@@ -64,10 +67,9 @@ function openFillPopup(target, credentialList) {
             })
 }
 
-function openGeneratePopup(target) {
-  openPopup(target,
-            "selfpass-popup-generate-box",
-            "build/html/generate-popup.html");
+function openGeneratePopup(target, username) {
+  const url = "build/html/generate-popup.html?username=" + encodeURIComponent(username);
+  openPopup(target, "selfpass-popup-generate-box", url);
 }
 
 function isWithinButton(e, target) {
@@ -101,13 +103,16 @@ function insertButton(target, onClick) {
   });
 }
 
-function insertGenerateButton(targetPair){
-  for (const target of targetPair) {
+function insertGenerateButton(targetElems){
+  for (const target of targetElems) {
     insertButton(target, function(e){
       e.stopPropagation();
 
       if (isWithinButton(e, target)) {
-        openGeneratePopup(target);
+        activeGenerateElems = targetElems;
+
+        const username = targetElems[targetElems.length - 1].val();
+        openGeneratePopup(target, username);
       }
     });
   }
@@ -134,35 +139,57 @@ function closeFillPopup() {
   $("#selfpass-popup-fill-box").remove();
 }
 
+function closeGeneratePopup() {
+  activeGenerateElems = null;
+  $("#selfpass-popup-generate-box").remove();
+}
 
-(function addGenerateButtons(){
+chrome.runtime.sendMessage({message:"login-status"}, function(response){
+  if (response.isLoggedIn !== true) {
+    return;
+  }
+
+  chrome.runtime.sendMessage({message:"get-credentials"}, function(response){
+    if (response.length > 0) {
+      var targetFillGroups = findTargetFillInputs();
+      for (const pair of targetFillGroups) {
+        insertFillButton(pair, response);
+      }
+    }
+  });
+
   var targetGenerateGroups = findTargetGenerateInputs();
   for (const pair of targetGenerateGroups) {
     console.log("Inserting generate button into ", pair);
     insertGenerateButton(pair);
   }
-})()
 
-chrome.runtime.sendMessage({message:"get-credentials"}, function(response){
-  if (response.length === 0) {
-    return;
-  }
-
-  var targetFillGroups = findTargetFillInputs();
-  for (const pair of targetFillGroups) {
-    insertFillButton(pair, response);
-  }
-
-  $(document).on('click', closeFillPopup);
+  $(document).on('click', function(){
+    closeFillPopup();
+    closeGeneratePopup();
+  });
 
   chrome.runtime.onMessage.addListener(function(request, sender){
-    console.log(request, sender, activeFillPair);
+    console.log(request, sender);
     if (request.message === "fill-credentials" && activeFillPair !== null) {
       activeFillPair[0].val(request.creds.username);
       activeFillPair[1].val(request.creds.password);
       closeFillPopup();
-    } else if (request.message === "close-popup") {
+    } else if (request.message === "fill-generated-password" &&
+               activeGenerateElems !== null) {
+      console.log("Got fill message");
+      activeGenerateElems[0].val(request.password);
+      activeGenerateElems[1].val(request.password);
+      activeGenerateElems[2].val(request.username);
+      closeGeneratePopup();
+    } else if (request.message === "close-fill-popup") {
       closeFillPopup();
+    } else if (request.message === "close-generate-popup") {
+      closeGeneratePopup();
+    } else if (request.message === "request-save-credentials") {
+      request.message = "save-credentials";
+      request.url = window.location.href;
+      chrome.runtime.sendMessage(request);
     }
   });
 });

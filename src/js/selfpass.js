@@ -278,8 +278,15 @@ var selfpass = (function(){
     console.log(request, sender);
     if (request.message === "get-credentials") {
       sendResponse(credentialsForUrl(sender.tab.url));
-    } else if (request.message === "fill-credentials" ||
-               request.message === "close-popup") {
+    } else if (request.message === "login-status") {
+      sendResponse({isLoggedIn:isLoggedIn()});
+    } else if (request.message === "save-credentials") {
+      saveCredentialsForUrl(request.url, request.username, request.password);
+    } else if (request.message === "fill-credentials"         ||
+               request.message === "fill-generated-password"  ||
+               request.message === "close-fill-popup"         ||
+               request.message === "request-save-credentials" ||
+               request.message === "close-generate-popup") {
       // proxy fill-credentials/close requests for the iframe back to the
       // originating tab
       chrome.tabs.sendMessage(sender.tab.id, request);

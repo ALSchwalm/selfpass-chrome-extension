@@ -14,7 +14,7 @@ var $ = require("../../lib/jquery.js");
 
 function closePopup() {
   chrome.runtime.sendMessage({
-    message:"close-popup"
+    message:"close-fill-popup"
   });
 }
 

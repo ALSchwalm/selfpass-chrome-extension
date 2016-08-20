@@ -15,6 +15,7 @@ import RaisedButton from 'material-ui/RaisedButton';
 import Toggle from 'material-ui/Toggle';
 import Subheader from 'material-ui/Subheader';
 import Checkbox from 'material-ui/Checkbox';
+import Refresh from 'material-ui/svg-icons/navigation/refresh';
 
 
 class GeneratePasswordMenu extends React.Component {
@@ -27,7 +28,8 @@ class GeneratePasswordMenu extends React.Component {
       useNumbers: true,
       useSpecialCharacters: false,
       passwordLength: 12,
-      password: ""
+      password: "",
+      username: decodeURIComponent(window.location.search.split("=")[1])
     }
 
     this.generatePassword = () => {
@@ -61,6 +63,12 @@ class GeneratePasswordMenu extends React.Component {
       });
     }
 
+    this.onUsernameChange = (e) => {
+      this.setState({
+        username: e.target.value
+      });
+    }
+
     this.toggleAdvancedOpen = () => {
       this.setState({
         advancedOpen: !this.state.advancedOpen,
@@ -68,6 +76,9 @@ class GeneratePasswordMenu extends React.Component {
     }
 
     this.changePasswordLength = (e) => {
+      if (e.target.value == this.state.passwordLength) {
+        return;
+      }
       this.setState({
         passwordLength: e.target.value,
       }, function(){
@@ -96,6 +107,22 @@ class GeneratePasswordMenu extends React.Component {
         useSpecialCharacters: !this.state.useSpecialCharacters,
       }, function(){
         this.updatePassword();
+      });
+    }
+
+    this.onSave = () => {
+      console.log("Sending fill message", this.state.username);
+
+      chrome.runtime.sendMessage({
+        message:"request-save-credentials",
+        password: this.state.password,
+        username: this.state.username
+      });
+
+      chrome.runtime.sendMessage({
+        message:"fill-generated-password",
+        password: this.state.password,
+        username: this.state.username
       });
     }
   }
@@ -131,16 +158,28 @@ class GeneratePasswordMenu extends React.Component {
     return (
       <div>
         <TextField
-            ref={(ref) => this.username = ref}
+            value={this.state.username}
+            onChange={this.onUsernameChange}
             hintText="Username"/>
         <TextField
             value={this.state.password}
             hintText="Password" />
         <Toggle label="Advanced Options" onToggle={this.toggleAdvancedOpen}/>
         {advancedOptions}
-        <RaisedButton label="Save"
-                      fullWidth={true}
-                      primary={true} />
+        <div>
+          <RaisedButton icon={<Refresh />}
+                        onClick={this.updatePassword}
+                        style={{width: "48%"}}
+                        primary={true} />
+          <RaisedButton label="Save"
+                        /* TODO make this less bad */
+                        onClick={this.onSave}
+                        style={{width: "48%",
+                                position: "relative",
+                                bottom: "-1px",
+                                right: "-10px"}}
+                        primary={true} />
+        </div>
       </div>)
   }
 }
