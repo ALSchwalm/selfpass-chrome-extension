@@ -84,6 +84,11 @@ class SelfPassView extends React.Component {
     selfpass().logout();
   }
 
+  onClickKeystore() {
+    const url = chrome.extension.getURL("build/html/keystore.html");
+    chrome.tabs.create({url: url});
+  }
+
   render() {
     if (!selfpass().isPaired()) {
       return <UnpairedView />;
@@ -92,7 +97,9 @@ class SelfPassView extends React.Component {
     }
     return (
       <List>
-        <ListItem primaryText="Key Store" leftIcon={<VPNKey />} />
+        <ListItem primaryText="Key Store"
+                  onClick={this.onClickKeystore}
+                  leftIcon={<VPNKey />} />
         <ListItem primaryText="Generate Password" leftIcon={<Cached />} />
         <ListItem primaryText="Settings" leftIcon={<Settings />} />
         <Divider/>
@@ -112,7 +119,7 @@ const App = () => (
   <MuiThemeProvider muiTheme={theme}>
     <div>
       <AppBar title="SelfPass"
-              iconStyleLeft={{display:"none"}}
+              showMenuIconButton={false}
               style={{height:"35px"}}
               iconElementRight={<IconButton onClick={e=>window.close()}><NavigationClose /></IconButton>}/>
       <SelfPassView />

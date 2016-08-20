@@ -134,6 +134,21 @@ function insertFillButton(targetPair, credentialList) {
   }
 }
 
+// Credit: https://stackoverflow.com/questions/6150289/
+function toDataUrl(url, callback) {
+  var xhr = new XMLHttpRequest();
+  xhr.responseType = 'blob';
+  xhr.onload = function() {
+    var reader = new FileReader();
+    reader.onloadend = function() {
+      callback(reader.result);
+    }
+    reader.readAsDataURL(xhr.response);
+  };
+  xhr.open('GET', url);
+  xhr.send();
+}
+
 function closeFillPopup() {
   activeFillPair = null;
   $("#selfpass-popup-fill-box").remove();
@@ -177,7 +192,6 @@ chrome.runtime.sendMessage({message:"login-status"}, function(response){
       closeFillPopup();
     } else if (request.message === "fill-generated-password" &&
                activeGenerateElems !== null) {
-      console.log("Got fill message");
       activeGenerateElems[0].val(request.password);
       activeGenerateElems[1].val(request.password);
       activeGenerateElems[2].val(request.username);
@@ -189,7 +203,14 @@ chrome.runtime.sendMessage({message:"login-status"}, function(response){
     } else if (request.message === "request-save-credentials") {
       request.message = "save-credentials";
       request.url = window.location.href;
-      chrome.runtime.sendMessage(request);
+
+      toDataUrl(location.protocol + "//" + location.host + "/favicon.ico",
+                function(data){
+        if (data.substr(0, 10) === "data:image"){
+          request.favicon = data;
+        }
+        chrome.runtime.sendMessage(request);
+      })
     }
   });
 });

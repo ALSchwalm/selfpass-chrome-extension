@@ -57,7 +57,7 @@ var selfpass = (function(){
     return parser;
   }
 
-  function saveCredentialsForUrl(url, username, password) {
+  function saveCredentialsForUrl(url, username, password, favicon) {
     var host = parseUrl(url).host;
     if (typeof(keystore[host]) === "undefined") {
       keystore[host] = [];
@@ -66,7 +66,8 @@ var selfpass = (function(){
       username: username,
       password: password,
       url: url,
-      host: host
+      host: host,
+      favicon: favicon
     });
     sendUpdatedKeystore(keystore);
   }
@@ -278,10 +279,15 @@ var selfpass = (function(){
     console.log(request, sender);
     if (request.message === "get-credentials") {
       sendResponse(credentialsForUrl(sender.tab.url));
+    } else if (request.message === "get-keystore") {
+      sendResponse(keystore);
     } else if (request.message === "login-status") {
       sendResponse({isLoggedIn:isLoggedIn()});
     } else if (request.message === "save-credentials") {
-      saveCredentialsForUrl(request.url, request.username, request.password);
+      saveCredentialsForUrl(request.url,
+                            request.username,
+                            request.password,
+                            request.favicon);
     } else if (request.message === "fill-credentials"         ||
                request.message === "fill-generated-password"  ||
                request.message === "close-fill-popup"         ||
