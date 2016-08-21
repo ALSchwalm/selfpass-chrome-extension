@@ -4,34 +4,28 @@ var $ = require("../../lib/jquery.js");
 var activeFillPair = null;
 var activeGenerateElems = null;
 
-function findTargetFillInputs(){
-  var targets = [];
-  $("form").each(function(){
-    var username = $(this).find(":text");
-    var password = $(this).find(":password");
+function findTargetFillInputs(form){
+  var username = form.find(":text");
+  var password = form.find(":password");
 
-    if (username.length && password.length == 1) {
-      username = $(username[0]);
-      password = $(password[0]);
+  if (username.length && password.length == 1) {
+    username = $(username[0]);
+    password = $(password[0]);
 
-      targets.push([username, password]);
-    }
-  });
-  return targets;
+    return [username, password];
+  }
+  return [];
 }
 
-function findTargetGenerateInputs() {
+function findTargetGenerateInputs(form) {
   console.log("looking for generate inputs");
-  var targets = [];
-  $("form").each(function(){
-    var passwords = $(this).find(":password");
-    var username =  $(this).find(":text");
+  var passwords = form.find(":password");
+  var username =  form.find(":text");
 
-    if (passwords.length == 2) {
-      targets.push([$(passwords[0]), $(passwords[1]), $(username[0])]);
-    }
-  });
-  return targets;
+  if (passwords.length == 2) {
+      return [$(passwords[0]), $(passwords[1]), $(username[0])];
+  }
+  return [];
 }
 
 function openPopup(elem, id, url, css) {
@@ -159,6 +153,26 @@ function closeGeneratePopup() {
   $("#selfpass-popup-generate-box").remove();
 }
 
+function onFormAdded(callback) {
+  function mutationHandler(mutations) {
+    mutations.forEach(function (mutation) {
+      mutation.addedNodes.forEach(function(node) {
+        var forms = $(node).find("form");
+        forms.each(function(){
+          console.log("Found added form", $(this));
+          callback($(this));
+        });
+      });
+    });
+  }
+  var observerConfig = {
+    childList: true,
+    subtree: true
+  };
+  var observer = new MutationObserver(mutationHandler);
+  observer.observe($("body")[0], observerConfig);
+}
+
 chrome.runtime.sendMessage({message:"login-status"}, function(response){
   if (response.isLoggedIn !== true) {
     return;
@@ -166,18 +180,26 @@ chrome.runtime.sendMessage({message:"login-status"}, function(response){
 
   chrome.runtime.sendMessage({message:"get-credentials"}, function(response){
     if (response.length > 0) {
-      var targetFillGroups = findTargetFillInputs();
-      for (const pair of targetFillGroups) {
-        insertFillButton(pair, response);
+      function addFillInput(form) {
+        const targetFillGroup = findTargetFillInputs(form);
+        if (targetFillGroup.length > 0) {
+          insertFillButton(targetFillGroup, response);
+        }
       }
+      $("form").each((i, e) => addFillInput($(e)));
+      onFormAdded(addFillInput);
     }
   });
 
-  var targetGenerateGroups = findTargetGenerateInputs();
-  for (const pair of targetGenerateGroups) {
-    console.log("Inserting generate button into ", pair);
-    insertGenerateButton(pair);
+  function addGenerateButton(form){
+    const targetGenerateGroup = findTargetGenerateInputs(form);
+    if (targetGenerateGroup.length > 0) {
+      insertGenerateButton(targetGenerateGroup, response);
+    }
   }
+  $("form").each((i, e) => addGenerateButton($(e)));
+  onFormAdded(addGenerateButton);
+
 
   $(document).on('click', function(){
     closeFillPopup();

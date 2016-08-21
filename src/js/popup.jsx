@@ -72,6 +72,12 @@ class LoggedOutView extends React.Component {
         });
       });
     };
+
+    this.onKeyPress = (e) => {
+      if (e.key === 'Enter') {
+        this.login();
+      }
+    }
   }
 
   render() {
@@ -80,6 +86,7 @@ class LoggedOutView extends React.Component {
         <TextField
             ref={(ref) => this.masterKey = ref}
             floatingLabelText="Master Password"
+            onKeyPress={this.onKeyPress}
             errorText={this.state.isInError ? "Incorrect password" : null}
             type="password"/>
         <br />

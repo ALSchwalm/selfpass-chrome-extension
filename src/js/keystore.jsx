@@ -7,6 +7,8 @@ import MenuItem from 'material-ui/MenuItem';
 import TextField from 'material-ui/TextField';
 import {GridList, GridTile} from 'material-ui/GridList';
 import injectTapEventPlugin from 'react-tap-event-plugin';
+import VPNKey from 'material-ui/svg-icons/communication/vpn-key';
+import Settings from 'material-ui/svg-icons/action/settings';
 
 class SiteGrid extends React.Component {
   render() {
@@ -82,31 +84,49 @@ class KeystoreView extends React.Component {
   }
 }
 
-document.addEventListener("DOMContentLoaded", function() {
-  injectTapEventPlugin();
-  chrome.runtime.sendMessage({message:"get-keystore"}, function(response){
-    console.log(response)
+class App extends React.Component {
+  constructor(...args) {
+    super(...args);
+
+    this.state = {
+      activeView: "keystore"
+    }
+  }
+
+  render() {
     const style = {
       marginLeft: "256px",
       marginTop: "0px"
     }
 
-    const App = () => (
-      <MuiThemeProvider>
+    var view;
+    if (this.state.activeView === "keystore") {
+      view = <KeystoreView credentialItems={this.props.credentials} />
+    }
+
+    return <MuiThemeProvider>
         <div>
           <Drawer open={true}>
             <AppBar title="SelfPass" showMenuIconButton={false} />
+            <MenuItem primaryText="Keystore" leftIcon={<VPNKey />} />
+            <MenuItem primaryText="Settings" leftIcon={<Settings />} />
           </Drawer>
           <div style={style}>
             <AppBar showMenuIconButton={false} />
-            <KeystoreView credentialItems={response} />
+            {view}
           </div>
         </div>
-      </MuiThemeProvider>
-    );
+    </MuiThemeProvider>
+  }
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+  injectTapEventPlugin();
+  chrome.runtime.sendMessage({message:"get-keystore"}, function(response){
+    console.log(response)
 
     ReactDOM.render(
-      <App />,
+      <App credentials={response} />,
       document.getElementById('container')
     );
   })

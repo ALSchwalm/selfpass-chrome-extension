@@ -73,8 +73,8 @@ class FillPopupBox extends React.Component {
   render() {
     return (
       <List>
-        {this.props.credentialList.map(function(credential){
-           return <CredentialListItem creds={credential}/>
+        {this.props.credentialList.map(function(credential, i){
+           return <CredentialListItem creds={credential} key={i}/>
           })}
       </List>);
   }
