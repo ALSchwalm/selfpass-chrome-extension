@@ -60,8 +60,17 @@ class UnpairedView extends React.Component {
 class LoggedOutView extends React.Component {
   constructor(...args) {
     super(...args);
-    this.login = e => {
-      selfpass().login(this.masterKey.input.value);
+
+    this.state = {
+      isInError: false
+    }
+
+    this.login = () => {
+      selfpass().login(this.masterKey.input.value, null, () => {
+        this.setState({
+          isInError: true
+        });
+      });
     };
   }
 
@@ -71,6 +80,7 @@ class LoggedOutView extends React.Component {
         <TextField
             ref={(ref) => this.masterKey = ref}
             floatingLabelText="Master Password"
+            errorText={this.state.isInError ? "Incorrect password" : null}
             type="password"/>
         <br />
         <RaisedButton onClick={this.login} fullWidth={true} label="Login" primary={true} />

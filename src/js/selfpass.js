@@ -92,13 +92,17 @@ var selfpass = (function(){
     sendEncryptedRequest("retrieve-keystore", undefined, function(response){
       var encryptedKeystore = JSON.parse(response["data"]);
       var decryptedKeystore = decrypt(encryptedKeystore, masterKey);
+      var parsedKeystore = JSON.parse(decryptedKeystore);
 
       if (typeof(callback) === "undefined") {
-        keystore = JSON.parse(decryptedKeystore);
-        console.log("Updated keystore");
+        keystore = parsedKeystore;
       } else {
-        callback(JSON.parse(decryptedKeystore));
+        callback(parsedKeystore);
       }
+
+      chrome.storage.local.set({"keystore": encryptedKeystore}, function(){
+        console.log("Updated keystore");
+      });
     });
   }
 
@@ -132,15 +136,54 @@ var selfpass = (function(){
     accessKey = accessKey_;
   }
 
-  function login(masterKey_) {
+  function loginFirstTime(masterKey_) {
     if (!isPaired()) {
       console.error("Cannot login before pairing.");
       return;
     }
     masterKey = expandMasterPass(masterKey_, userID);
+    console.log("Finished First time log in.");
+
+    var encryptedKeystore = encrypt(userID, masterKey, JSON.stringify(keystore));
+    chrome.storage.local.set({"keystore": encryptedKeystore}, function(){
+      console.log("Stored encrypted keystore (first time)");
+    });
+
+    // This should be an empty object. Send it so the server
+    // has something stored for the new user.
+    sendUpdatedKeystore(keystore);
+  }
+
+  function login(masterKey_, onSuccess, onError) {
+    if (!isPaired()) {
+      console.error("Cannot login before pairing.");
+      return;
+    }
+    var providedKey = expandMasterPass(masterKey_, userID);
     console.log("Finished logging in.");
-    console.log("Getting current keystore.");
-    getCurrentKeystore();
+    console.log("Reading current keystore.");
+
+    chrome.storage.local.get("keystore", function(encryptedKeystore){
+      try {
+        var decryptedKeystore = decrypt(encryptedKeystore["keystore"],
+                                        providedKey);
+        var parsedKeystore = JSON.parse(decryptedKeystore);
+
+        console.log("Used provided key to decrypt current keystore");
+
+        masterKey = providedKey;
+        console.log("Getting updated keystore.");
+        getCurrentKeystore();
+
+        if (onSuccess) {
+          onSuccess();
+        }
+      } catch(err) {
+        if (onError) {
+          onError(err);
+        }
+      }
+    });
   }
 
   function sendEncryptedRequest(method, data, callback) {
@@ -187,11 +230,7 @@ var selfpass = (function(){
       data: JSON.stringify({username: username}),
       success: function(response) {
         completePair(response, function(){
-          login(masterKey);
-
-          // This should be an empty object. Send it so the server
-          // has something stored for the new user.
-          sendUpdatedKeystore(keystore);
+          loginFirstTime(masterKey);
         });
       },
       error: function(response) {
@@ -246,6 +285,7 @@ var selfpass = (function(){
 
   function logout() {
     masterKey = null;
+    keystore = {};
     console.log("Logged out.");
   }
 
