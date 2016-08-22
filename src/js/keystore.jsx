@@ -9,6 +9,8 @@ import {GridList, GridTile} from 'material-ui/GridList';
 import injectTapEventPlugin from 'react-tap-event-plugin';
 import VPNKey from 'material-ui/svg-icons/communication/vpn-key';
 import Settings from 'material-ui/svg-icons/action/settings';
+import Exit from 'material-ui/svg-icons/action/exit-to-app';
+import RaisedButton from 'material-ui/RaisedButton';
 
 class SiteGrid extends React.Component {
   render() {
@@ -91,12 +93,18 @@ class App extends React.Component {
     this.state = {
       activeView: "keystore"
     }
+
+    this.logout = () => {
+      chrome.runtime.sendMessage({message:"logout"});
+    }
   }
 
   render() {
     const style = {
-      marginLeft: "256px",
-      marginTop: "0px"
+      rightBar: {
+        marginLeft: "256px",
+        marginTop: "0px"
+      }
     }
 
     var view;
@@ -107,12 +115,16 @@ class App extends React.Component {
     return <MuiThemeProvider>
         <div>
           <Drawer open={true}>
-            <AppBar title="SelfPass" showMenuIconButton={false} />
+            <AppBar title="SelfPass"
+                    showMenuIconButton={false} />
             <MenuItem primaryText="Keystore" leftIcon={<VPNKey />} />
             <MenuItem primaryText="Settings" leftIcon={<Settings />} />
           </Drawer>
-          <div style={style}>
-            <AppBar showMenuIconButton={false} />
+          <div style={style.rightBar}>
+            <AppBar showMenuIconButton={false}
+                    iconElementRight={<RaisedButton label="Logout"
+                                                    onClick={this.logout}
+                                                    icon={<Exit />} /> } />
             {view}
           </div>
         </div>

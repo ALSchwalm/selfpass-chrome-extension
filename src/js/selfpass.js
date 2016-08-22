@@ -323,6 +323,8 @@ var selfpass = (function(){
       sendResponse(keystore);
     } else if (request.message === "login-status") {
       sendResponse({isLoggedIn:isLoggedIn()});
+    } else if (request.message === "logout") {
+      logout();
     } else if (request.message === "save-credentials") {
       saveCredentialsForUrl(request.url,
                             request.username,
