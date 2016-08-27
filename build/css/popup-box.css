@@ -1,0 +1,17 @@
+
+body {
+    padding: 0px;
+    margin: 0px;
+}
+
+#fill-container,
+#generate-container {
+    background-color: white;
+    border: solid 1px black;
+    width: 250px;
+    font-family: 'Roboto', sans-serif !important;
+}
+
+#generate-container{
+    padding: 5px;
+}

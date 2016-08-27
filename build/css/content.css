@@ -1,0 +1,15 @@
+
+.selfpass-input-button {
+    background-size: 24px 24px;
+    background-position: 98% 50%;
+    background-repeat: no-repeat;
+}
+
+.selfpass-popup-box {
+    position: absolute;
+    z-index: 9999;
+}
+
+#selfpass-popup-generate-box {
+    height: 500px;
+}
