@@ -223,10 +223,13 @@ var selfpass = (function(){
     });
   }
 
-  function pairWithNewUser(managementUrl, username, masterKey) {
+  function pairWithNewUser(localServerLocation,
+                           remoteServerLocation,
+                           username,
+                           masterKey) {
     $.ajax({
       type: 'POST',
-      url: 'http://localhost:5000/user/add',
+      url: localServerLocation + '/user/add',
       data: JSON.stringify({username: username}),
       success: function(response) {
         completePair(response, function(){
@@ -241,12 +244,15 @@ var selfpass = (function(){
     });
   }
 
-  function pairWithExistingUser(managementUrl, username, masterKey) {
+  function pairWithExistingUser(localServerLocation,
+                                remoteServerLocation,
+                                username,
+                                masterKey) {
     $.ajax({
       type: "GET",
 
       //TODO use the provided url (and store it)
-      url: 'http://localhost:5000/user/' + username + '/info',
+      url: localServerLocation + '/user/' + username + '/info',
       success: function(response) {
         completePair(response, function(){
           login(masterKey);
@@ -277,6 +283,9 @@ var selfpass = (function(){
   }
 
   function unpair() {
+    if (isLoggedIn()) {
+      logout();
+    }
     chrome.storage.local.remove("userID");
     chrome.storage.local.remove("accessKey");
     chrome.storage.local.remove("paired");

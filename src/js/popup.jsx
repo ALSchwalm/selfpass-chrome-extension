@@ -8,6 +8,7 @@ import RaisedButton from 'material-ui/RaisedButton';
 import IconButton from 'material-ui/IconButton';
 import AppBar from 'material-ui/AppBar';
 import getMuiTheme from 'material-ui/styles/getMuiTheme';
+import injectTapEventPlugin from 'react-tap-event-plugin';
 
 import VPNKey from 'material-ui/svg-icons/communication/vpn-key';
 import Cached from 'material-ui/svg-icons/action/cached';
@@ -21,37 +22,57 @@ var selfpass = () => chrome.extension.getBackgroundPage().selfpass;
 class UnpairedView extends React.Component {
   constructor(...args) {
     super(...args);
-    this.pair = e => {
+    this.pairWithExistingUser = e => {
       selfpass().pairWithExistingUser(
-        this.serverIP.input.value,
+        this.localServerLocation.input.value,
+        this.remoteServerLocation.input.value,
         this.username.input.value,
         this.masterKey.input.value);
     };
+
+    this.pairWithNewUser = e => {
+      selfpass().pairWithNewUser(
+        this.localServerLocation.input.value,
+        this.remoteServerLocation.input.value,
+        this.username.input.value,
+        this.masterKey.input.value);
+    }
   }
 
   render() {
     const style = {
-      margin: "5px"
+      marginBottom: "5px"
     };
 
     return (
       <div>
         <TextField
-            hintText="192.168.1.100:49999"
-            ref={(ref) => this.serverIP = ref}
+            hintText="http://192.168.1.100:5000"
+            ref={(ref) => this.localServerLocation = ref}
             floatingLabelFixed={true}
-            floatingLabelText="Server IP and Port"/>
-        <br />
+            floatingLabelText="Management Address and Port"/>
+        <TextField
+            hintText="https://mydomain.com:4999"
+            ref={(ref) => this.remoteServerLocation = ref}
+            floatingLabelFixed={true}
+            floatingLabelText="External Address and Port"/>
         <TextField
             ref={(ref) => this.username = ref}
             floatingLabelText="Username"/>
-        <br />
         <TextField
             ref={(ref) => this.masterKey = ref}
             floatingLabelText="Master Password"
             type="password"/>
-        <br />
-        <RaisedButton onClick={this.pair} style={style} label="Pair" fullWidth={true} primary={true} />
+        <RaisedButton onClick={this.pairWithNewUser}
+                      style={style}
+                      label="Pair as New User"
+                      fullWidth={true}
+                      primary={true} />
+        <RaisedButton onClick={this.pairWithExistingUser}
+                      style={style}
+                      label="Pair as Existing User"
+                      fullWidth={true}
+                      secondary={true} />
       </div>
     );
   }
@@ -145,6 +166,7 @@ const App = () => (
 );
 
 document.addEventListener("DOMContentLoaded", function(event) {
+  injectTapEventPlugin();
   function renderApp(){
     ReactDOM.render(
       <App />,
