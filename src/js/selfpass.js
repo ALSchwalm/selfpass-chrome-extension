@@ -13,13 +13,13 @@ var selfpass = (function(){
     iv = String.fromCharCode.apply(null, iv);
     iv = sjcl.codec.utf8String.toBits(iv);
 
-    var cipher = new sjcl.cipher.aes(b64.toBits(key));
+    const cipher = new sjcl.cipher.aes(b64.toBits(key));
 
-    var pt = sjcl.codec.utf8String.toBits(plaintext);
-    var encrypted = sjcl.mode.gcm.encrypt(cipher, pt, iv, [], 128);
-    var length = sjcl.bitArray.bitLength(encrypted);
-    var ciphertext = sjcl.bitArray.bitSlice(encrypted, 0, length-128);
-    var tag = sjcl.bitArray.bitSlice(encrypted, length-128);
+    const pt = sjcl.codec.utf8String.toBits(plaintext);
+    const encrypted = sjcl.mode.gcm.encrypt(cipher, pt, iv, [], 128);
+    const length = sjcl.bitArray.bitLength(encrypted);
+    const ciphertext = sjcl.bitArray.bitSlice(encrypted, 0, length-128);
+    const tag = sjcl.bitArray.bitSlice(encrypted, length-128);
 
     return {
       ciphertext: b64.fromBits(ciphertext),
@@ -30,35 +30,35 @@ var selfpass = (function(){
   }
 
   function decrypt(encrypted, key) {
-    var cipher = new sjcl.cipher.aes(b64.toBits(key));
+    const cipher = new sjcl.cipher.aes(b64.toBits(key));
 
-    var iv = b64.toBits(encrypted["iv"]);
-    var tag = b64.toBits(encrypted["tag"]);
+    const iv = b64.toBits(encrypted["iv"]);
+    const tag = b64.toBits(encrypted["tag"]);
     var ciphertext = b64.toBits(encrypted["ciphertext"]);
     ciphertext = sjcl.bitArray.concat(ciphertext, tag);
 
-    var decrypted = sjcl.mode.gcm.decrypt(cipher, ciphertext, iv);
+    const decrypted = sjcl.mode.gcm.decrypt(cipher, ciphertext, iv);
     return sjcl.codec.utf8String.fromBits(decrypted);
   }
 
   function expandMasterPass(password, userID) {
-    var out = sjcl.misc.pbkdf2(password,
-                               sjcl.codec.utf8String.toBits(userID),
-                               100000,
-                               32*8);
+    const out = sjcl.misc.pbkdf2(password,
+                                 sjcl.codec.utf8String.toBits(userID),
+                                 100000,
+                                 32*8);
     return b64.fromBits(out);
   }
 
   var keystore = {};
 
   function parseUrl(url) {
-    var parser = document.createElement('a');
+    const parser = document.createElement('a');
     parser.href = url;
     return parser;
   }
 
   function saveCredentialsForUrl(url, username, password, favicon) {
-    var host = parseUrl(url).host;
+    const host = parseUrl(url).host;
     if (typeof(keystore[host]) === "undefined") {
       keystore[host] = [];
     }
@@ -73,7 +73,7 @@ var selfpass = (function(){
   }
 
   function credentialsForUrl(url) {
-    var host = parseUrl(url).host;
+    const host = parseUrl(url).host;
     if (typeof(keystore[host]) === "undefined") {
       return [];
     }
@@ -100,7 +100,8 @@ var selfpass = (function(){
         callback(parsedKeystore);
       }
 
-      chrome.storage.local.set({"keystore": encryptedKeystore}, function(){
+      chrome.storage.local.set({"keystores": {[userID]: encryptedKeystore}},
+                               function(){
         console.log("Updated keystore");
       });
     });
@@ -126,13 +127,15 @@ var selfpass = (function(){
 
   // Backed by local storage
   var userID = null;
+  var username = null;
   var accessKey = null;
 
   // More temporary
   var masterKey = null;
 
-  function init(userID_, accessKey_) {
+  function init(userID_, username_, accessKey_) {
     userID = userID_;
+    username = username_;
     accessKey = accessKey_;
   }
 
@@ -145,7 +148,8 @@ var selfpass = (function(){
     console.log("Finished First time log in.");
 
     var encryptedKeystore = encrypt(userID, masterKey, JSON.stringify(keystore));
-    chrome.storage.local.set({"keystore": encryptedKeystore}, function(){
+    chrome.storage.local.set({"keystores": {[userID]: encryptedKeystore}},
+                             function(){
       console.log("Stored encrypted keystore (first time)");
     });
 
@@ -159,15 +163,15 @@ var selfpass = (function(){
       console.error("Cannot login before pairing.");
       return;
     }
-    var providedKey = expandMasterPass(masterKey_, userID);
-    console.log("Finished logging in.");
+    const providedKey = expandMasterPass(masterKey_, userID);
     console.log("Reading current keystore.");
 
-    chrome.storage.local.get("keystore", function(encryptedKeystore){
+    chrome.storage.local.get("keystores", function(result){
       try {
-        var decryptedKeystore = decrypt(encryptedKeystore["keystore"],
-                                        providedKey);
-        var parsedKeystore = JSON.parse(decryptedKeystore);
+        const encryptedKeystore = result.keystores[userID];
+        const decryptedKeystore = decrypt(encryptedKeystore,
+                                          providedKey);
+        const parsedKeystore = JSON.parse(decryptedKeystore);
 
         console.log("Used provided key to decrypt current keystore");
 
@@ -175,10 +179,13 @@ var selfpass = (function(){
         console.log("Getting updated keystore.");
         getCurrentKeystore();
 
+        console.log("Finished logging in.");
         if (onSuccess) {
           onSuccess();
         }
       } catch(err) {
+        masterKey = null;
+        console.log("Error logging in:", err);
         if (onError) {
           onError(err);
         }
@@ -206,7 +213,7 @@ var selfpass = (function(){
       data: JSON.stringify(encryptedPayload),
       success: function(response) {
         if (typeof(callback) !== "undefined") {
-          var decrypted = JSON.parse(decrypt(response, accessKey));
+          const decrypted = JSON.parse(decrypt(response, accessKey));
 
           if (decrypted["request-nonce"] === payload["request-nonce"]) {
             callback(decrypted);
@@ -232,7 +239,7 @@ var selfpass = (function(){
       url: localServerLocation + '/user/add',
       data: JSON.stringify({username: username}),
       success: function(response) {
-        completePair(response, function(){
+        completePair(localServerLocation, response, function(){
           loginFirstTime(masterKey);
         });
       },
@@ -254,7 +261,7 @@ var selfpass = (function(){
       //TODO use the provided url (and store it)
       url: localServerLocation + '/user/' + username + '/info',
       success: function(response) {
-        completePair(response, function(){
+        completePair(localServerLocation, response, function(){
           login(masterKey);
         });
       },
@@ -264,31 +271,46 @@ var selfpass = (function(){
     });
   }
 
-  function completePair(response, callback) {
-    chrome.storage.local.set({"userID": response["id"]}, function(userID){
-      chrome.storage.local.set({"accessKey": response["access_key"]}, function(accessKey){
-        chrome.storage.local.set({"paired": 1}, function(){
-          if (!chrome.extension.lastError) {
-            init(response["id"], response["access_key"]);
-            console.log("Pairing complete");
-            paired = true;
+  function completePair(serverAddress, response, callback) {
+    const userID = response["id"];
+    const accessKey = response["access_key"];
+    const username = response["username"];
 
-            callback();
-          } else {
-            console.error("An error occurred while pairing");
-          }
-        });
+    chrome.storage.local.get("users", function(users){
+      users[userID] = {
+        accessKey: accessKey,
+        username: username
+      };
+      const data = {
+        connectionData : {
+          paired: 1,
+          serverAddress: serverAddress,
+          accessKey: accessKey,
+          lastUser: userID,
+          users: users
+        }
+      };
+
+      chrome.storage.local.set(data, function() {
+        if (!chrome.extension.lastError) {
+          init(userID, username, accessKey);
+          console.log("Pairing complete");
+          paired = true;
+
+          callback();
+        } else {
+          console.error("An error occurred while pairing");
+        }
       });
     });
+
   }
 
   function unpair() {
     if (isLoggedIn()) {
       logout();
     }
-    chrome.storage.local.remove("userID");
-    chrome.storage.local.remove("accessKey");
-    chrome.storage.local.remove("paired");
+    chrome.storage.local.remove("connectionData");
     paired = false;
   }
 
@@ -299,26 +321,25 @@ var selfpass = (function(){
   }
 
   function startup() {
-    chrome.storage.local.get("userID", function(result){
-      var userID = result.userID;
-      chrome.storage.local.get("accessKey", function(result){
-        var accessKey = result.accessKey;
-        chrome.storage.local.get("paired", function(result){
-          if (typeof(userID) === "undefined" ||
-              typeof(accessKey) === "undefined" ||
-              typeof(result.paired) === "undefined") {
+    chrome.storage.local.get("connectionData", function(result){
+      const connectionData = result.connectionData;
 
-            console.log("Unpaired.");
-            return;
-          }
+      if (typeof(connectionData) === "undefined") {
+        console.log("Unpaired.");
+        return;
+      }
 
-          paired = result.paired;
+      const accessKey = connectionData.accessKey;
 
-          console.log("Already paired.");
-          init(userID, accessKey);
-          console.log("Loaded userID `" + userID + "` and accessKey `" + accessKey + "`");
-        });
-      });
+      const userID = connectionData.lastUser;
+      const username = connectionData.users[userID].username;
+
+      paired = connectionData.paired;
+
+      console.log("Already paired.");
+      init(userID, username, accessKey);
+      console.log("Loaded userID `" + userID + "`(" + username +
+                  ") and accessKey `" + accessKey + "`");
     });
   }
 
@@ -366,3 +387,4 @@ var selfpass = (function(){
 })();
 
 window.selfpass = selfpass;
+window.sjcl = sjcl;
