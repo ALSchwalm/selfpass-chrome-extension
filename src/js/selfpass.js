@@ -1,13 +1,13 @@
-var sjcl = require("../../lib/sjcl.js");
+const sjcl = require("../../lib/sjcl.js");
 
 //TODO remove this
-var $ = require("../../lib/jquery.js");
+const $ = require("../../lib/jquery.js");
 
 var selfpass = (function(){
-  var b64 = sjcl.codec.base64;
+  const b64 = sjcl.codec.base64;
 
-  function encrypt(userID, key, plaintext){
-    var iv = new Uint8Array(12);
+  function encrypt(userID, access_key_id, key, plaintext){
+    let iv = new Uint8Array(12);
     window.crypto.getRandomValues(iv);
 
     iv = String.fromCharCode.apply(null, iv);
@@ -25,7 +25,8 @@ var selfpass = (function(){
       ciphertext: b64.fromBits(ciphertext),
       tag: b64.fromBits(tag),
       iv: b64.fromBits(iv),
-      user_id: userID
+      user_id: userID,
+      access_key_id: access_key_id
     };
   }
 
@@ -34,22 +35,22 @@ var selfpass = (function(){
 
     const iv = b64.toBits(encrypted["iv"]);
     const tag = b64.toBits(encrypted["tag"]);
-    var ciphertext = b64.toBits(encrypted["ciphertext"]);
+    let ciphertext = b64.toBits(encrypted["ciphertext"]);
     ciphertext = sjcl.bitArray.concat(ciphertext, tag);
 
     const decrypted = sjcl.mode.gcm.decrypt(cipher, ciphertext, iv);
     return sjcl.codec.utf8String.fromBits(decrypted);
   }
 
-  function expandMasterPass(password, userID) {
+  function expandPass(password, salt) {
     const out = sjcl.misc.pbkdf2(password,
-                                 sjcl.codec.utf8String.toBits(userID),
+                                 sjcl.codec.utf8String.toBits(salt),
                                  100000,
                                  32*8);
     return b64.fromBits(out);
   }
 
-  var keystore = {};
+  let keystore = {};
 
   function parseUrl(url) {
     const parser = document.createElement('a');
@@ -80,6 +81,18 @@ var selfpass = (function(){
 
     //TODO return ranking based on URL similarity
     return keystore[host];
+  }
+
+  function generateDeviceID() {
+    let id = new Uint8Array(32);
+    window.crypto.getRandomValues(id);
+    let hexID = '';
+    for (let i = 0; i < id.length; ++i) {
+      let hex = id[i].toString(16);
+      hex = ("0" + hex).substr(-2);
+      hexID += hex;
+    }
+    return hexID;
   }
 
   function generateNonce() {
@@ -128,15 +141,13 @@ var selfpass = (function(){
   // Backed by local storage
   var userID = null;
   var username = null;
-  var accessKey = null;
 
   // More temporary
   var masterKey = null;
 
-  function init(userID_, username_, accessKey_) {
+  function init(userID_, username_) {
     userID = userID_;
     username = username_;
-    accessKey = accessKey_;
   }
 
   function loginFirstTime(masterKey_) {
@@ -144,7 +155,7 @@ var selfpass = (function(){
       console.error("Cannot login before pairing.");
       return;
     }
-    masterKey = expandMasterPass(masterKey_, userID);
+    masterKey = expandPass(masterKey_, userID);
     console.log("Finished First time log in.");
 
     var encryptedKeystore = encrypt(userID, masterKey, JSON.stringify(keystore));
@@ -163,7 +174,7 @@ var selfpass = (function(){
       console.error("Cannot login before pairing.");
       return;
     }
-    const providedKey = expandMasterPass(masterKey_, userID);
+    const providedKey = expandPass(masterKey_, userID);
     console.log("Reading current keystore.");
 
     chrome.storage.local.get("keystores", function(result){
@@ -230,62 +241,81 @@ var selfpass = (function(){
     });
   }
 
-  function pairWithNewUser(localServerLocation,
-                           remoteServerLocation,
-                           username,
-                           masterKey) {
+  function pairDevice(combinedAccessKey,
+                      remoteServerLocation,
+                      username,
+                      masterKey) {
+    const userID = b64.fromBits(sjcl.hash.sha256.hash(username));
+    const deviceID = generateDeviceID();
+
+    const [accessKeyID, accessKey] = [combinedAccessKey.slice(0, 2),
+                                      combinedAccessKey.slice(2)];
+
+    // Expand the access key to a GCM key, use the userID as the salt
+    const expandedAccessKey = expandPass(accessKey.replace(/-/g, ''), userID);
+
+    // The long-lived key used for authentication in the ECDHE
+    const keys = sjcl.ecc.ecdsa.generateKeys(521);
+
+    const pub = keys.pub;
+    const priv = keys.sec;
+    const point = pub.get();
+
+    const message = {
+      request: "register-device",
+      device_id: deviceID,
+      ecc: {
+        x: b64.fromBits(point.x),
+        y: b64.fromBits(point.y)
+      }
+    };
+
+    const payload = encrypt(userID, accessKeyID, expandedAccessKey,
+                            JSON.stringify(message));
+
     $.ajax({
       type: 'POST',
-      url: localServerLocation + '/user/add',
-      data: JSON.stringify({username: username}),
-      success: function(response) {
-        completePair(localServerLocation, response, function(){
-          loginFirstTime(masterKey);
-        });
-      },
-      error: function(response) {
-        console.error("Failed to pair with new user", response);
-      },
+      url: remoteServerLocation + "/pair",
+      data: JSON.stringify(payload),
       contentType: "application/json",
-      dataType: 'json'
-    });
-  }
+      dataType: 'json',
+      success: function(encryptedResponse) {
+        const responseStr = decrypt(encryptedResponse, expandedAccessKey);
+        const response = JSON.parse(responseStr);
+        const point = response.ecc;
 
-  function pairWithExistingUser(localServerLocation,
-                                remoteServerLocation,
-                                username,
-                                masterKey) {
-    $.ajax({
-      type: "GET",
+        const Xbits = b64.toBits(point.x);
+        const Ybits = b64.toBits(point.y);
 
-      //TODO use the provided url (and store it)
-      url: localServerLocation + '/user/' + username + '/info',
-      success: function(response) {
-        completePair(localServerLocation, response, function(){
-          login(masterKey);
-        });
+        const pointBits = sjcl.bitArray.concat(Xbits, Ybits);
+
+        const serverPubKey = new sjcl.ecc.ecdsa.publicKey(sjcl.ecc.curves["c521"],
+                                                            pointBits);
+        const userKeys = {
+          pub: pub,
+          priv: priv
+        };
+        completePair(remoteServerLocation, username, userID, deviceID,
+                     userKeys, serverPubKey);
       },
-      error: function(response) {
-        console.error("Failed to pair with existing user", response);
+      error: function() {
+        console.error("An error occurred while pairing device.");
       }
     });
   }
 
-  function completePair(serverAddress, response, callback) {
-    const userID = response["id"];
-    const accessKey = response["access_key"];
-    const username = response["username"];
-
+  function completePair(serverAddress, username, userID, deviceID,
+                        userKeys, serverPubKey) {
     chrome.storage.local.get("users", function(users){
       users[userID] = {
-        accessKey: accessKey,
-        username: username
+        username: username,
+        keys: userKeys
       };
       const data = {
         connectionData : {
           paired: 1,
           serverAddress: serverAddress,
-          accessKey: accessKey,
+          serverPubKey: serverPubKey,
           lastUser: userID,
           users: users
         }
@@ -293,17 +323,14 @@ var selfpass = (function(){
 
       chrome.storage.local.set(data, function() {
         if (!chrome.extension.lastError) {
-          init(userID, username, accessKey);
+          init(userID, username);
           console.log("Pairing complete");
           paired = true;
-
-          callback();
         } else {
           console.error("An error occurred while pairing");
         }
       });
     });
-
   }
 
   function unpair() {
@@ -376,8 +403,7 @@ var selfpass = (function(){
     logout: logout,
     isLoggedIn: isLoggedIn,
     unpair: unpair,
-    pairWithExistingUser: pairWithExistingUser,
-    pairWithNewUser: pairWithNewUser,
+    pairDevice: pairDevice,
     isPaired: isPaired,
     getCurrentKeystore: getCurrentKeystore,
     credentialsForUrl: credentialsForUrl,

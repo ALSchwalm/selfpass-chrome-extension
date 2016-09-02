@@ -22,17 +22,11 @@ var selfpass = () => chrome.extension.getBackgroundPage().selfpass;
 class UnpairedView extends React.Component {
   constructor(...args) {
     super(...args);
-    this.pairWithExistingUser = e => {
-      selfpass().pairWithExistingUser(
-        this.localServerLocation.input.value,
-        this.remoteServerLocation.input.value,
-        this.username.input.value,
-        this.masterKey.input.value);
-    };
 
-    this.pairWithNewUser = e => {
-      selfpass().pairWithNewUser(
-        this.localServerLocation.input.value,
+    this.pairDevice = e => {
+      console.log(this.accessKey.input.value);
+      selfpass().pairDevice(
+        this.accessKey.input.value,
         this.remoteServerLocation.input.value,
         this.username.input.value,
         this.masterKey.input.value);
@@ -41,38 +35,38 @@ class UnpairedView extends React.Component {
 
   render() {
     const style = {
-      marginBottom: "5px"
+      input: {
+        width: "310px"
+      }
     };
 
     return (
       <div>
         <TextField
-            hintText="http://192.168.1.100:5000"
-            ref={(ref) => this.localServerLocation = ref}
-            floatingLabelFixed={true}
-            floatingLabelText="Management Address and Port"/>
-        <TextField
             hintText="https://mydomain.com:4999"
             ref={(ref) => this.remoteServerLocation = ref}
             floatingLabelFixed={true}
-            floatingLabelText="External Address and Port"/>
+            style={style.input}
+            floatingLabelText="Server Address and Port"/>
         <TextField
+            hintText="NQ4A-X3NJ-KXAZ-V53T-NWUR-EKFD"
+            ref={(ref) => this.accessKey = ref}
+            style={style.input}
+            floatingLabelFixed={true}
+            floatingLabelText="Access Key"/>
+        <TextField
+            style={style.input}
             ref={(ref) => this.username = ref}
             floatingLabelText="Username"/>
         <TextField
+            style={style.input}
             ref={(ref) => this.masterKey = ref}
             floatingLabelText="Master Password"
             type="password"/>
-        <RaisedButton onClick={this.pairWithNewUser}
-                      style={style}
-                      label="Pair as New User"
+        <RaisedButton onClick={this.pairDevice}
+                      label="Pair Device"
                       fullWidth={true}
                       primary={true} />
-        <RaisedButton onClick={this.pairWithExistingUser}
-                      style={style}
-                      label="Pair as Existing User"
-                      fullWidth={true}
-                      secondary={true} />
       </div>
     );
   }
@@ -151,7 +145,6 @@ const theme = getMuiTheme({
     height: 35,
   },
 });
-
 
 const App = () => (
   <MuiThemeProvider muiTheme={theme}>
