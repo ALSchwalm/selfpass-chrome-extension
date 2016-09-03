@@ -6,7 +6,16 @@ const $ = require("../../lib/jquery.js");
 var selfpass = (function(){
   const b64 = sjcl.codec.base64;
 
-  function encrypt(userID, access_key_id, key, plaintext){
+  var state = {
+    paired: false,
+    username: null,
+    userID: null,
+    keystore: {},
+
+    masterKey: null
+  };
+
+  function encrypt(key, plaintext, additionalData){
     let iv = new Uint8Array(12);
     window.crypto.getRandomValues(iv);
 
@@ -21,13 +30,16 @@ var selfpass = (function(){
     const ciphertext = sjcl.bitArray.bitSlice(encrypted, 0, length-128);
     const tag = sjcl.bitArray.bitSlice(encrypted, length-128);
 
-    return {
+    var result = {
       ciphertext: b64.fromBits(ciphertext),
       tag: b64.fromBits(tag),
-      iv: b64.fromBits(iv),
-      user_id: userID,
-      access_key_id: access_key_id
+      iv: b64.fromBits(iv)
     };
+
+    for (let key in additionalData) {
+      result[key] = additionalData[key];
+    }
+    return result;
   }
 
   function decrypt(encrypted, key) {
@@ -50,8 +62,6 @@ var selfpass = (function(){
     return b64.fromBits(out);
   }
 
-  let keystore = {};
-
   function parseUrl(url) {
     const parser = document.createElement('a');
     parser.href = url;
@@ -60,27 +70,27 @@ var selfpass = (function(){
 
   function saveCredentialsForUrl(url, username, password, favicon) {
     const host = parseUrl(url).host;
-    if (typeof(keystore[host]) === "undefined") {
-      keystore[host] = [];
+    if (typeof(state.keystore[host]) === "undefined") {
+      state.keystore[host] = [];
     }
-    keystore[host].push({
+    state.keystore[host].push({
       username: username,
       password: password,
       url: url,
       host: host,
       favicon: favicon
     });
-    sendUpdatedKeystore(keystore);
+    sendUpdatedKeystore(state.keystore);
   }
 
   function credentialsForUrl(url) {
     const host = parseUrl(url).host;
-    if (typeof(keystore[host]) === "undefined") {
+    if (typeof(state.keystore[host]) === "undefined") {
       return [];
     }
 
     //TODO return ranking based on URL similarity
-    return keystore[host];
+    return state.keystore[host];
   }
 
   function generateDeviceID() {
@@ -104,16 +114,16 @@ var selfpass = (function(){
   function getCurrentKeystore(callback) {
     sendEncryptedRequest("retrieve-keystore", undefined, function(response){
       var encryptedKeystore = JSON.parse(response["data"]);
-      var decryptedKeystore = decrypt(encryptedKeystore, masterKey);
+      var decryptedKeystore = decrypt(encryptedKeystore, state.masterKey);
       var parsedKeystore = JSON.parse(decryptedKeystore);
 
       if (typeof(callback) === "undefined") {
-        keystore = parsedKeystore;
+        state.keystore = parsedKeystore;
       } else {
         callback(parsedKeystore);
       }
 
-      chrome.storage.local.set({"keystores": {[userID]: encryptedKeystore}},
+      chrome.storage.local.set({"keystores": {[state.userID]: encryptedKeystore}},
                                function(){
         console.log("Updated keystore");
       });
@@ -121,7 +131,7 @@ var selfpass = (function(){
   }
 
   function isLoggedIn() {
-    return masterKey !== null;
+    return state.masterKey !== null;
   }
 
   function sendUpdatedKeystore(keystore) {
@@ -129,25 +139,18 @@ var selfpass = (function(){
       console.error("Cannot sendUpdatedKeystore before logging in.");
       return;
     }
-    var encryptedKeystore = encrypt(userID, masterKey, JSON.stringify(keystore));
+    var encryptedKeystore = encrypt(state.userID, state.masterKey,
+                                    JSON.stringify(keystore));
     sendEncryptedRequest("update-keystore", JSON.stringify(encryptedKeystore));
   }
 
-  var paired = false;
   function isPaired() {
-    return !!paired;
+    return !!state.paired;
   }
 
-  // Backed by local storage
-  var userID = null;
-  var username = null;
-
-  // More temporary
-  var masterKey = null;
-
   function init(userID_, username_) {
-    userID = userID_;
-    username = username_;
+    state.userID = userID_;
+    state.username = username_;
   }
 
   function loginFirstTime(masterKey_) {
@@ -155,18 +158,19 @@ var selfpass = (function(){
       console.error("Cannot login before pairing.");
       return;
     }
-    masterKey = expandPass(masterKey_, userID);
+    state.masterKey = expandPass(masterKey_, state.userID);
     console.log("Finished First time log in.");
 
-    var encryptedKeystore = encrypt(userID, masterKey, JSON.stringify(keystore));
-    chrome.storage.local.set({"keystores": {[userID]: encryptedKeystore}},
+    var encryptedKeystore = encrypt(state.masterKey,
+                                    JSON.stringify(state.keystore));
+    chrome.storage.local.set({"keystores": {[state.userID]: encryptedKeystore}},
                              function(){
       console.log("Stored encrypted keystore (first time)");
     });
 
     // This should be an empty object. Send it so the server
     // has something stored for the new user.
-    sendUpdatedKeystore(keystore);
+    // sendUpdatedKeystore(keystore);
   }
 
   function login(masterKey_, onSuccess, onError) {
@@ -174,19 +178,19 @@ var selfpass = (function(){
       console.error("Cannot login before pairing.");
       return;
     }
-    const providedKey = expandPass(masterKey_, userID);
+    const providedKey = expandPass(masterKey_, state.userID);
     console.log("Reading current keystore.");
 
     chrome.storage.local.get("keystores", function(result){
       try {
-        const encryptedKeystore = result.keystores[userID];
+        const encryptedKeystore = result.keystores[state.userID];
         const decryptedKeystore = decrypt(encryptedKeystore,
                                           providedKey);
         const parsedKeystore = JSON.parse(decryptedKeystore);
 
         console.log("Used provided key to decrypt current keystore");
 
-        masterKey = providedKey;
+        state.masterKey = providedKey;
         console.log("Getting updated keystore.");
         getCurrentKeystore();
 
@@ -195,7 +199,7 @@ var selfpass = (function(){
           onSuccess();
         }
       } catch(err) {
-        masterKey = null;
+        state.masterKey = null;
         console.log("Error logging in:", err);
         if (onError) {
           onError(err);
@@ -216,7 +220,7 @@ var selfpass = (function(){
 
     var strPayload = JSON.stringify(payload);
 
-    var encryptedPayload = encrypt(userID, accessKey, strPayload);
+    var encryptedPayload = encrypt(state.userID, state.accessKey, strPayload);
 
     $.ajax({
       type: 'POST',
@@ -224,7 +228,7 @@ var selfpass = (function(){
       data: JSON.stringify(encryptedPayload),
       success: function(response) {
         if (typeof(callback) !== "undefined") {
-          const decrypted = JSON.parse(decrypt(response, accessKey));
+          const decrypted = JSON.parse(decrypt(response, state.accessKey));
 
           if (decrypted["request-nonce"] === payload["request-nonce"]) {
             callback(decrypted);
@@ -270,8 +274,12 @@ var selfpass = (function(){
       }
     };
 
-    const payload = encrypt(userID, accessKeyID, expandedAccessKey,
-                            JSON.stringify(message));
+    const payload = encrypt(expandedAccessKey,
+                            JSON.stringify(message),
+                            {
+                              user_id: userID,
+                              access_key_id: accessKeyID
+                            });
 
     $.ajax({
       type: 'POST',
@@ -291,12 +299,13 @@ var selfpass = (function(){
 
         const serverPubKey = new sjcl.ecc.ecdsa.publicKey(sjcl.ecc.curves["c521"],
                                                             pointBits);
-        const userKeys = {
+        const userSignatureKeys = {
           pub: pub,
           priv: priv
         };
-        completePair(remoteServerLocation, username, userID, deviceID,
-                     userKeys, serverPubKey);
+        completePair(remoteServerLocation, masterKey, username,
+                     userID, deviceID, userSignatureKeys,
+                     serverPubKey, loginFirstTime);
       },
       error: function() {
         console.error("An error occurred while pairing device.");
@@ -304,8 +313,10 @@ var selfpass = (function(){
     });
   }
 
-  function completePair(serverAddress, username, userID, deviceID,
-                        userKeys, serverPubKey) {
+  function completePair(serverAddress, masterKey,
+                        username, userID, deviceID,
+                        userKeys, serverPubKey,
+                        onComplete, onError) {
     chrome.storage.local.get("users", function(users){
       users[userID] = {
         username: username,
@@ -325,9 +336,16 @@ var selfpass = (function(){
         if (!chrome.extension.lastError) {
           init(userID, username);
           console.log("Pairing complete");
-          paired = true;
+          state.paired = true;
+
+          if (typeof(onComplete) !== "undefined") {
+            onComplete(masterKey);
+          }
         } else {
           console.error("An error occurred while pairing");
+          if (typeof(onError) !== "undefined") {
+            onError();
+          }
         }
       });
     });
@@ -338,12 +356,12 @@ var selfpass = (function(){
       logout();
     }
     chrome.storage.local.remove("connectionData");
-    paired = false;
+    state.paired = false;
   }
 
   function logout() {
-    masterKey = null;
-    keystore = {};
+    state.masterKey = null;
+    state.keystore = {};
     console.log("Logged out.");
   }
 
@@ -356,17 +374,14 @@ var selfpass = (function(){
         return;
       }
 
-      const accessKey = connectionData.accessKey;
-
       const userID = connectionData.lastUser;
       const username = connectionData.users[userID].username;
 
-      paired = connectionData.paired;
+      state.paired = connectionData.paired;
 
       console.log("Already paired.");
-      init(userID, username, accessKey);
-      console.log("Loaded userID `" + userID + "`(" + username +
-                  ") and accessKey `" + accessKey + "`");
+      init(userID, username);
+      console.log("Loaded user `" + username + "` (" + userID + ")");
     });
   }
 
@@ -377,7 +392,7 @@ var selfpass = (function(){
     if (request.message === "get-credentials") {
       sendResponse(credentialsForUrl(sender.tab.url));
     } else if (request.message === "get-keystore") {
-      sendResponse(keystore);
+      sendResponse(state.keystore);
     } else if (request.message === "login-status") {
       sendResponse({isLoggedIn:isLoggedIn()});
     } else if (request.message === "logout") {
@@ -408,7 +423,8 @@ var selfpass = (function(){
     getCurrentKeystore: getCurrentKeystore,
     credentialsForUrl: credentialsForUrl,
     saveCredentialsForUrl: saveCredentialsForUrl,
-    keystore: function(){return keystore;}
+    keystore: function(){return state.keystore;},
+    state: function(){return state;}
   };
 })();
 

@@ -99,6 +99,11 @@ class LoggedOutView extends React.Component {
     return (
       <div>
         <TextField
+            ref={(ref) => this.username = ref}
+            floatingLabelText="Username"
+            defaultValue={selfpass().state().username}
+            type="input"/>
+        <TextField
             ref={(ref) => this.masterKey = ref}
             floatingLabelText="Master Password"
             onKeyPress={this.onKeyPress}
