@@ -10,9 +10,30 @@ var selfpass = (function(){
     paired: false,
     username: null,
     userID: null,
+    userKeys: null,
+    serverPubKey: null,
     keystore: {},
 
     masterKey: null
+  };
+
+  const crypto = {
+    publicKeyToJSON: function(publicKey) {
+      const point = publicKey.get();
+      return {
+        x: b64.fromBits(point.x),
+        y: b64.fromBits(point.y)
+      };
+    },
+
+    publicKeyFromJSON: function(js) {
+      const Xbits = b64.toBits(js.x);
+      const Ybits = b64.toBits(js.y);
+
+      const pointBits = sjcl.bitArray.concat(Xbits, Ybits);
+      return new sjcl.ecc.ecdsa.publicKey(sjcl.ecc.curves["c521"],
+                                          pointBits);
+    }
   };
 
   function encrypt(key, plaintext, additionalData){
@@ -62,6 +83,30 @@ var selfpass = (function(){
     return b64.fromBits(out);
   }
 
+  function sendEncryptedRequest(url, method, data, callback) {
+    const tempKeys = sjcl.ecc.elGamal.generateKeys(521);
+    const tempPub = tempKeys.pub;
+    const tempPriv = tempKeys.sec;
+    const tempPoint = tempPub.get();
+
+    const payload = {
+      public_key: crypto.publicKeyToJSON(tempPub)
+    };
+
+    const encodedPayload = b64.fromBits(
+      sjcl.codec.utf8String.toBits(JSON.stringify(payload)));
+
+    const payloadHash = sjcl.hash.sha256.hash(encodedPayload);
+    const signature = b64.fromBits(state.userKeys.priv.sign(payloadHash));
+
+    const message = {
+      payload: encodedPayload,
+      signature: signature
+    };
+
+    console.log(message);
+  }
+
   function parseUrl(url) {
     const parser = document.createElement('a');
     parser.href = url;
@@ -103,12 +148,6 @@ var selfpass = (function(){
       hexID += hex;
     }
     return hexID;
-  }
-
-  function generateNonce() {
-    var nonce = new Uint8Array(8);
-    window.crypto.getRandomValues(nonce);
-    return btoa(nonce);
   }
 
   function getCurrentKeystore(callback) {
@@ -170,7 +209,7 @@ var selfpass = (function(){
 
     // This should be an empty object. Send it so the server
     // has something stored for the new user.
-    // sendUpdatedKeystore(keystore);
+    sendUpdatedKeystore(state.keystore);
   }
 
   function login(masterKey_, onSuccess, onError) {
@@ -208,43 +247,6 @@ var selfpass = (function(){
     });
   }
 
-  function sendEncryptedRequest(method, data, callback) {
-    var payload = {
-      "request": method,
-      "request-nonce": generateNonce()
-    };
-
-    if (typeof(data) !== "undefined") {
-      payload["data"] = data;
-    }
-
-    var strPayload = JSON.stringify(payload);
-
-    var encryptedPayload = encrypt(state.userID, state.accessKey, strPayload);
-
-    $.ajax({
-      type: 'POST',
-      url: 'http://localhost:4999',
-      data: JSON.stringify(encryptedPayload),
-      success: function(response) {
-        if (typeof(callback) !== "undefined") {
-          const decrypted = JSON.parse(decrypt(response, state.accessKey));
-
-          if (decrypted["request-nonce"] === payload["request-nonce"]) {
-            callback(decrypted);
-          } else {
-            console.error("Incorrect nonce.");
-          }
-        }
-      },
-      error: function(response) {
-        console.error("An error occurred while fulfilling request");
-      },
-      contentType: "application/json",
-      dataType: 'json'
-    });
-  }
-
   function pairDevice(combinedAccessKey,
                       remoteServerLocation,
                       username,
@@ -263,15 +265,11 @@ var selfpass = (function(){
 
     const pub = keys.pub;
     const priv = keys.sec;
-    const point = pub.get();
 
     const message = {
       request: "register-device",
       device_id: deviceID,
-      ecc: {
-        x: b64.fromBits(point.x),
-        y: b64.fromBits(point.y)
-      }
+      public_key: crypto.publicKeyToJSON(pub)
     };
 
     const payload = encrypt(expandedAccessKey,
@@ -290,22 +288,22 @@ var selfpass = (function(){
       success: function(encryptedResponse) {
         const responseStr = decrypt(encryptedResponse, expandedAccessKey);
         const response = JSON.parse(responseStr);
-        const point = response.ecc;
 
-        const Xbits = b64.toBits(point.x);
-        const Ybits = b64.toBits(point.y);
-
-        const pointBits = sjcl.bitArray.concat(Xbits, Ybits);
-
-        const serverPubKey = new sjcl.ecc.ecdsa.publicKey(sjcl.ecc.curves["c521"],
-                                                            pointBits);
-        const userSignatureKeys = {
+        // Verify that the point is on the curve
+        state.serverPubKey = crypto.publicKeyFromJSON(response.public_key);
+        state.userKeys = {
           pub: pub,
           priv: priv
         };
+
+        const userSignatureKeys = {
+          pub: pub.serialize(),
+          priv: priv.serialize()
+        };
+
         completePair(remoteServerLocation, masterKey, username,
                      userID, deviceID, userSignatureKeys,
-                     serverPubKey, loginFirstTime);
+                     state.serverPubKey, loginFirstTime);
       },
       error: function() {
         console.error("An error occurred while pairing device.");
@@ -317,6 +315,9 @@ var selfpass = (function(){
                         username, userID, deviceID,
                         userKeys, serverPubKey,
                         onComplete, onError) {
+
+    const serverPubKeySerialized = serverPubKey.serialize();
+
     chrome.storage.local.get("users", function(users){
       users[userID] = {
         username: username,
@@ -324,9 +325,9 @@ var selfpass = (function(){
       };
       const data = {
         connectionData : {
-          paired: 1,
+          paired: true,
           serverAddress: serverAddress,
-          serverPubKey: serverPubKey,
+          serverPubKey: serverPubKeySerialized,
           lastUser: userID,
           users: users
         }
@@ -375,9 +376,16 @@ var selfpass = (function(){
       }
 
       const userID = connectionData.lastUser;
-      const username = connectionData.users[userID].username;
+      const user = connectionData.users[userID];
+      const username = user.username;
 
       state.paired = connectionData.paired;
+      state.serverAddress = connectionData.serverAddress;
+      state.serverPubKey = sjcl.ecc.deserialize(connectionData.serverPubKey);
+      state.userKeys = {
+        priv: sjcl.ecc.deserialize(user.keys.priv),
+        pub: sjcl.ecc.deserialize(user.keys.pub)
+      };
 
       console.log("Already paired.");
       init(userID, username);
