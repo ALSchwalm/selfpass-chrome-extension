@@ -10,7 +10,9 @@ var selfpass = (function(){
     paired: false,
     username: null,
     userID: null,
+    deviceID: null,
     userKeys: null,
+    serverAddress: null,
     serverPubKey: null,
     keystore: {},
 
@@ -31,7 +33,7 @@ var selfpass = (function(){
       const Ybits = b64.toBits(js.y);
 
       const pointBits = sjcl.bitArray.concat(Xbits, Ybits);
-      return new sjcl.ecc.ecdsa.publicKey(sjcl.ecc.curves["c521"],
+      return new sjcl.ecc.ecdsa.publicKey(sjcl.ecc.curves["c384"],
                                           pointBits);
     }
   };
@@ -83,7 +85,7 @@ var selfpass = (function(){
     return b64.fromBits(out);
   }
 
-  function sendEncryptedRequest(url, method, data, callback) {
+  function sendEncryptedRequest(method, data, callback) {
     const tempKeys = sjcl.ecc.elGamal.generateKeys(521);
     const tempPub = tempKeys.pub;
     const tempPriv = tempKeys.sec;
@@ -97,14 +99,33 @@ var selfpass = (function(){
       sjcl.codec.utf8String.toBits(JSON.stringify(payload)));
 
     const payloadHash = sjcl.hash.sha256.hash(encodedPayload);
-    const signature = b64.fromBits(state.userKeys.priv.sign(payloadHash));
+
+    console.log("public_key:", crypto.publicKeyToJSON(state.userKeys.pub));
+    console.log("Computed hash:", b64.fromBits(payloadHash));
+
+    const signature = state.userKeys.priv.sign(payloadHash);
+
+    const signatureLength = sjcl.bitArray.bitLength(signature);
+    const r = sjcl.bitArray.bitSlice(signature, 0, signatureLength/2);
+    const s = sjcl.bitArray.bitSlice(signature, signatureLength/2, signatureLength);
 
     const message = {
       payload: encodedPayload,
-      signature: signature
+      signature: {
+        r: b64.fromBits(r),
+        s: b64.fromBits(s)
+      },
+      user_id: state.userID,
+      device_id: state.deviceID
     };
 
-    console.log(message);
+    $.ajax({
+      type: "POST",
+      url: state.serverAddress + "/hello",
+      data: JSON.stringify(message),
+      contentType: "application/json",
+      dataType: 'json'
+    });
   }
 
   function parseUrl(url) {
@@ -261,7 +282,7 @@ var selfpass = (function(){
     const expandedAccessKey = expandPass(accessKey.replace(/-/g, ''), userID);
 
     // The long-lived key used for authentication in the ECDHE
-    const keys = sjcl.ecc.ecdsa.generateKeys(521);
+    const keys = sjcl.ecc.ecdsa.generateKeys(384);
 
     const pub = keys.pub;
     const priv = keys.sec;
@@ -289,8 +310,12 @@ var selfpass = (function(){
         const responseStr = decrypt(encryptedResponse, expandedAccessKey);
         const response = JSON.parse(responseStr);
 
+        console.log("Server key: ", response.public_key);
+
         // Verify that the point is on the curve
         state.serverPubKey = crypto.publicKeyFromJSON(response.public_key);
+        state.deviceID = deviceID;
+        state.serverAddress = remoteServerLocation;
         state.userKeys = {
           pub: pub,
           priv: priv
@@ -321,6 +346,7 @@ var selfpass = (function(){
     chrome.storage.local.get("users", function(users){
       users[userID] = {
         username: username,
+        deviceID: deviceID,
         keys: userKeys
       };
       const data = {
@@ -379,6 +405,7 @@ var selfpass = (function(){
       const user = connectionData.users[userID];
       const username = user.username;
 
+      state.deviceID = user.deviceID;
       state.paired = connectionData.paired;
       state.serverAddress = connectionData.serverAddress;
       state.serverPubKey = sjcl.ecc.deserialize(connectionData.serverPubKey);
