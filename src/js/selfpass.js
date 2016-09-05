@@ -86,7 +86,7 @@ var selfpass = (function(){
   }
 
   function sendEncryptedRequest(method, data, callback) {
-    const tempKeys = sjcl.ecc.elGamal.generateKeys(521);
+    const tempKeys = sjcl.ecc.elGamal.generateKeys(384);
     const tempPub = tempKeys.pub;
     const tempPriv = tempKeys.sec;
     const tempPoint = tempPub.get();
