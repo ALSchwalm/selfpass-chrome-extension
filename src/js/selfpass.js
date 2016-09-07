@@ -35,6 +35,13 @@ var selfpass = (function(){
       const pointBits = sjcl.bitArray.concat(Xbits, Ybits);
       return new sjcl.ecc.ecdsa.publicKey(sjcl.ecc.curves["c384"],
                                           pointBits);
+    },
+
+    signatureFromJSON: function(js) {
+      const Rbits = b64.toBits(js.r);
+      const Sbits = b64.toBits(js.s);
+
+      return sjcl.bitArray.concat(Rbits, Sbits);
     }
   };
 
@@ -124,7 +131,17 @@ var selfpass = (function(){
       url: state.serverAddress + "/hello",
       data: JSON.stringify(message),
       contentType: "application/json",
-      dataType: 'json'
+      dataType: 'json',
+      success: function(response) {
+        const payloadHash = sjcl.hash.sha256.hash(response.payload);
+        const signature = crypto.signatureFromJSON(response.signature);
+        state.serverPubKey.verify(payloadHash, signature);
+
+        const serverTempPubKey = crypto.publicKeyFromJSON(
+          JSON.parse(atob(response.payload)).public_key);
+
+        console.log(b64.fromBits(tempPriv.dh(serverTempPubKey)));
+      }
     });
   }
 
