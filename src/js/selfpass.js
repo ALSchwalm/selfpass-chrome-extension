@@ -1,7 +1,5 @@
-const sjcl = require("../../lib/sjcl.js");
-
-//TODO remove this
-const $ = require("../../lib/jquery.js");
+import sjcl from "../../lib/sjcl";
+import $ from "jquery";
 
 var selfpass = (function(){
   const b64 = sjcl.codec.base64;

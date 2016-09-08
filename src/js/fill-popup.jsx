@@ -10,7 +10,7 @@ import IconMenu from 'material-ui/IconMenu';
 import MenuItem from 'material-ui/MenuItem';
 import injectTapEventPlugin from 'react-tap-event-plugin';
 
-var $ = require("../../lib/jquery.js");
+import $ from "jquery";
 
 function closePopup() {
   chrome.runtime.sendMessage({

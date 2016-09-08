@@ -1,4 +1,4 @@
-var $ = require("../../lib/jquery.js");
+import $ from "jquery";
 
 // TODO global state is bad
 var activeFillPair = null;
