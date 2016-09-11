@@ -1,9 +1,7 @@
-import sjcl from "../../lib/sjcl";
 import $ from "jquery";
+import base64 from "base64-js";
 
 var selfpass = (function(){
-  const b64 = sjcl.codec.base64;
-
   var state = {
     paired: false,
     username: null,
@@ -17,78 +15,109 @@ var selfpass = (function(){
     masterKey: null
   };
 
-  const crypto = {
-    publicKeyToJSON: function(publicKey) {
-      const point = publicKey.get();
-      return {
-        x: b64.fromBits(point.x),
-        y: b64.fromBits(point.y)
-      };
+  const cryptography = {
+    symmetricEncrypt: function(key, plaintext){
+      let iv = new Uint8Array(12);
+      window.crypto.getRandomValues(iv);
+
+      const encoder = new window.TextEncoder("utf-8");
+      const encodedPlaintext = encoder.encode(plaintext);
+
+      return window.crypto.subtle.encrypt(
+        {
+          name: "AES-GCM",
+          iv: iv,
+          tagLength: 128
+        },
+        key,
+        encodedPlaintext
+      ).then((encryptedView) => {
+        const encryptedBytes = new Uint8Array(encryptedView);
+        return {
+          ciphertext: base64.fromByteArray(encryptedBytes.slice(0, -16)),
+          tag: base64.fromByteArray(encryptedBytes.slice(-16)),
+          iv: base64.fromByteArray(iv)
+        };
+      });
     },
 
-    publicKeyFromJSON: function(js) {
-      const Xbits = b64.toBits(js.x);
-      const Ybits = b64.toBits(js.y);
+    symmetricDecrypt: function(key, ciphertextObj) {
+      const {
+        iv: b64IV,
+        tag: b64Tag,
+        ciphertext: b64Ciphertext
+      } = ciphertextObj;
 
-      const pointBits = sjcl.bitArray.concat(Xbits, Ybits);
-      return new sjcl.ecc.ecdsa.publicKey(sjcl.ecc.curves["c384"],
-                                          pointBits);
+      const iv = base64.toByteArray(b64IV);
+      const tag = base64.toByteArray(b64Tag);
+      const ciphertext = base64.toByteArray(b64Ciphertext);
+
+      const ciphertextWithTag = new Uint8Array(ciphertext.length + tag.length);
+      ciphertextWithTag.set(ciphertext, 0);
+      ciphertextWithTag.set(tag, ciphertext.length);
+
+      return window.crypto.subtle.decrypt(
+        {
+          name: "AES-GCM",
+          iv: iv,
+          tagLength: 128
+        },
+        key,
+        ciphertextWithTag
+      ).then((decryptedView) => {
+        return new Uint8Array(decryptedView);
+      });
     },
 
-    signatureFromJSON: function(js) {
-      const Rbits = b64.toBits(js.r);
-      const Sbits = b64.toBits(js.s);
+    expandPassword: function(password, salt) {
+      return Promise.all([password, salt]).then(([password, salt]) => {
+        const encoder = new window.TextEncoder("utf-8");
+        const encodedPassword = encoder.encode(password);
+        const encodedSalt = encoder.encode(salt);
 
-      return sjcl.bitArray.concat(Rbits, Sbits);
+        return window.crypto.subtle.importKey(
+          "raw",
+          encodedPassword,
+          {
+            name: "PBKDF2"
+          },
+          false,
+          ["deriveKey"]
+        ).then(function(key){
+          return window.crypto.subtle.deriveKey(
+            {
+              "name": "PBKDF2",
+              salt: encodedSalt,
+              iterations: 100000,
+              hash: "SHA-256"
+            },
+            key,
+            {"name": "AES-GCM", length: 256},
+            true,
+            ["encrypt", "decrypt"]
+          );
+        });
+      });
+    },
+
+    sha256: function(str) {
+      var buffer = new window.TextEncoder("utf-8").encode(str);
+      return window.crypto.subtle.digest("SHA-256", buffer).then(raw => {
+        return base64.fromByteArray(new Uint8Array(raw));
+      });
+    },
+
+    generateECDSAKeys() {
+      return window.crypto.subtle.generateKey(
+        {
+          name: "ECDSA",
+          namedCurve: "P-384"
+        },
+        true,
+        ["sign", "verify"]
+      );
     }
   };
-
-  function encrypt(key, plaintext, additionalData){
-    let iv = new Uint8Array(12);
-    window.crypto.getRandomValues(iv);
-
-    iv = String.fromCharCode.apply(null, iv);
-    iv = sjcl.codec.utf8String.toBits(iv);
-
-    const cipher = new sjcl.cipher.aes(b64.toBits(key));
-
-    const pt = sjcl.codec.utf8String.toBits(plaintext);
-    const encrypted = sjcl.mode.gcm.encrypt(cipher, pt, iv, [], 128);
-    const length = sjcl.bitArray.bitLength(encrypted);
-    const ciphertext = sjcl.bitArray.bitSlice(encrypted, 0, length-128);
-    const tag = sjcl.bitArray.bitSlice(encrypted, length-128);
-
-    var result = {
-      ciphertext: b64.fromBits(ciphertext),
-      tag: b64.fromBits(tag),
-      iv: b64.fromBits(iv)
-    };
-
-    for (let key in additionalData) {
-      result[key] = additionalData[key];
-    }
-    return result;
-  }
-
-  function decrypt(encrypted, key) {
-    const cipher = new sjcl.cipher.aes(b64.toBits(key));
-
-    const iv = b64.toBits(encrypted["iv"]);
-    const tag = b64.toBits(encrypted["tag"]);
-    let ciphertext = b64.toBits(encrypted["ciphertext"]);
-    ciphertext = sjcl.bitArray.concat(ciphertext, tag);
-
-    const decrypted = sjcl.mode.gcm.decrypt(cipher, ciphertext, iv);
-    return sjcl.codec.utf8String.fromBits(decrypted);
-  }
-
-  function expandPass(password, salt) {
-    const out = sjcl.misc.pbkdf2(password,
-                                 sjcl.codec.utf8String.toBits(salt),
-                                 100000,
-                                 32*8);
-    return b64.fromBits(out);
-  }
 
   function sendEncryptedRequest(method, data, callback) {
     const tempKeys = sjcl.ecc.elGamal.generateKeys(384);
@@ -231,21 +260,28 @@ var selfpass = (function(){
   function loginFirstTime(masterKey_) {
     if (!isPaired()) {
       console.error("Cannot login before pairing.");
-      return;
+      return null;
     }
-    state.masterKey = expandPass(masterKey_, state.userID);
-    console.log("Finished First time log in.");
 
-    var encryptedKeystore = encrypt(state.masterKey,
-                                    JSON.stringify(state.keystore));
-    chrome.storage.local.set({"keystores": {[state.userID]: encryptedKeystore}},
-                             function(){
-      console.log("Stored encrypted keystore (first time)");
+    return cryptography.expandPassword(masterKey_, state.userID).then(masterKey => {
+      state.masterKey = masterKey;
+      console.log("Finished First time log in.");
+
+      cryptography.symmetricEncrypt(state.masterKey,
+                                    JSON.stringify(state.keystore))
+        .then(encryptedKeystore => {
+
+          chrome.storage.local.set(
+            {"keystores": {[state.userID]: encryptedKeystore}},
+            function(){
+              console.log("Stored encrypted keystore (first time)");
+            });
+
+          // This should be an empty object. Send it so the server
+          // has something stored for the new user.
+          // sendUpdatedKeystore(state.keystore);
+        });
     });
-
-    // This should be an empty object. Send it so the server
-    // has something stored for the new user.
-    sendUpdatedKeystore(state.keystore);
   }
 
   function login(masterKey_, onSuccess, onError) {
@@ -283,114 +319,135 @@ var selfpass = (function(){
     });
   }
 
+  function generatePairingInfo(combinedAccessKey, username) {
+    const userID = cryptography.sha256(username);
+    const deviceID = generateDeviceID();
+    const [accessKeyID, accessKey] = [combinedAccessKey.slice(0, 2),
+                                      combinedAccessKey.slice(2)];
+
+    const expandedAccessKey = cryptography.expandPassword(
+      accessKey.replace(/-/g, ''), userID);
+
+    const clientKeys = cryptography.generateECDSAKeys();
+
+    const payload = Promise.all([userID, expandedAccessKey, clientKeys]).then(
+      ([userID, expandedAccessKey, clientKeys]) => {
+
+        const pub = clientKeys.publicKey;
+
+        return window.crypto.subtle.exportKey("jwk", pub).then(exportedClientPub => {
+          console.log("Exported client key: ", exportedClientPub);
+          const message = {
+            request: "register-device",
+            device_id: deviceID,
+            public_key: exportedClientPub
+          };
+          return cryptography.symmetricEncrypt(expandedAccessKey,
+                                               JSON.stringify(message))
+            .then(payload => {
+              payload["user_id"] = userID;
+              payload["access_key_id"] = accessKeyID;
+              return payload;
+            });
+        });
+    });
+
+    return Promise.all([userID, deviceID, expandedAccessKey, clientKeys, payload]);
+  }
+
   function pairDevice(combinedAccessKey,
                       remoteServerLocation,
                       username,
                       masterKey) {
-    const userID = b64.fromBits(sjcl.hash.sha256.hash(username));
-    const deviceID = generateDeviceID();
+    return generatePairingInfo(combinedAccessKey, username)
+      .then(([userID, deviceID, expandedAccessKey, clientKeys, payload]) => {
+      $.ajax({
+        type: 'POST',
+        url: remoteServerLocation + "/pair",
+        data: JSON.stringify(payload),
+        contentType: "application/json",
+        dataType: 'json',
+        success: function(encryptedResponse) {
+          cryptography.symmetricDecrypt(expandedAccessKey,
+                                        encryptedResponse).then(response => {
+            const decoder = new window.TextDecoder("utf-8");
+            const decodedResponse = decoder.decode(response);
 
-    const [accessKeyID, accessKey] = [combinedAccessKey.slice(0, 2),
-                                      combinedAccessKey.slice(2)];
+            const message = JSON.parse(decodedResponse);
 
-    // Expand the access key to a GCM key, use the userID as the salt
-    const expandedAccessKey = expandPass(accessKey.replace(/-/g, ''), userID);
+            return window.crypto.subtle.importKey(
+              "jwk",
+              message.public_key,
+              {
+                name: "ECDSA",
+                namedCurve: "P-384"
+              },
+              true,
+              ["verify"]);
+          }).then(serverKey => {
+            state.serverPubKey = serverKey;
+            state.deviceID = deviceID;
+            state.serverAddress = remoteServerLocation;
+            state.paired = true;
 
-    // The long-lived key used for authentication in the ECDHE
-    const keys = sjcl.ecc.ecdsa.generateKeys(384);
+            state.userKeys = {
+              publicKey: clientKeys.publicKey,
+              privateKey: clientKeys.privateKey
+            };
 
-    const pub = keys.pub;
-    const priv = keys.sec;
-
-    const message = {
-      request: "register-device",
-      device_id: deviceID,
-      public_key: crypto.publicKeyToJSON(pub)
-    };
-
-    const payload = encrypt(expandedAccessKey,
-                            JSON.stringify(message),
-                            {
-                              user_id: userID,
-                              access_key_id: accessKeyID
-                            });
-
-    $.ajax({
-      type: 'POST',
-      url: remoteServerLocation + "/pair",
-      data: JSON.stringify(payload),
-      contentType: "application/json",
-      dataType: 'json',
-      success: function(encryptedResponse) {
-        const responseStr = decrypt(encryptedResponse, expandedAccessKey);
-        const response = JSON.parse(responseStr);
-
-        console.log("Server key: ", response.public_key);
-
-        // Verify that the point is on the curve
-        state.serverPubKey = crypto.publicKeyFromJSON(response.public_key);
-        state.deviceID = deviceID;
-        state.serverAddress = remoteServerLocation;
-        state.userKeys = {
-          pub: pub,
-          priv: priv
-        };
-
-        const userSignatureKeys = {
-          pub: pub.serialize(),
-          priv: priv.serialize()
-        };
-
-        completePair(remoteServerLocation, masterKey, username,
-                     userID, deviceID, userSignatureKeys,
-                     state.serverPubKey, loginFirstTime);
-      },
-      error: function() {
-        console.error("An error occurred while pairing device.");
-      }
-    });
-  }
-
-  function completePair(serverAddress, masterKey,
-                        username, userID, deviceID,
-                        userKeys, serverPubKey,
-                        onComplete, onError) {
-
-    const serverPubKeySerialized = serverPubKey.serialize();
-
-    chrome.storage.local.get("users", function(users){
-      users[userID] = {
-        username: username,
-        deviceID: deviceID,
-        keys: userKeys
-      };
-      const data = {
-        connectionData : {
-          paired: true,
-          serverAddress: serverAddress,
-          serverPubKey: serverPubKeySerialized,
-          lastUser: userID,
-          users: users
-        }
-      };
-
-      chrome.storage.local.set(data, function() {
-        if (!chrome.extension.lastError) {
-          init(userID, username);
-          console.log("Pairing complete");
-          state.paired = true;
-
-          if (typeof(onComplete) !== "undefined") {
-            onComplete(masterKey);
-          }
-        } else {
-          console.error("An error occurred while pairing");
-          if (typeof(onError) !== "undefined") {
-            onError();
-          }
+            savePairInfo(remoteServerLocation, username,
+                         userID, deviceID, state.userKeys,
+                         state.serverPubKey).then(() => {
+                           state.paired = true;
+                           init(userID, username);
+                           console.log("Pairing complete");
+                           loginFirstTime(masterKey);
+                         });
+          });
+        },
+        error: function() {
+          console.error("An error occurred while pairing device.");
         }
       });
     });
+  }
+
+  function savePairInfo(serverAddress, username, userID, deviceID,
+                        userKeys, serverPubKey) {
+    const exportedUserPub = window.crypto.subtle.exportKey("jwk", userKeys.publicKey);
+    const exportedUserPriv = window.crypto.subtle.exportKey("jwk", userKeys.privateKey);
+    const exportedServerPub = window.crypto.subtle.exportKey("jwk", serverPubKey);
+
+    return Promise.all([exportedUserPub, exportedUserPriv, exportedServerPub])
+      .then(([exportedUserPub, exportedUserPriv, exportedServerPub]) => {
+        chrome.storage.local.get("users", function(users){
+          users[userID] = {
+            username: username,
+            deviceID: deviceID,
+            keys: {
+              publicKey: exportedUserPub,
+              privateKey: exportedUserPriv
+            }
+          };
+          const data = {
+            connectionData : {
+              paired: true,
+              serverAddress: serverAddress,
+              serverPubKey: exportedServerPub,
+              lastUser: userID,
+              users: users
+            }
+          };
+
+          chrome.storage.local.set(data, function() {
+            if (!chrome.extension.lastError) {
+              console.log("Saved pairing parameters");
+            } else {
+              console.error("An error occurred while saving pairing parameters");
+            }
+          });
+        });
+      });
   }
 
   function unpair() {
@@ -423,15 +480,53 @@ var selfpass = (function(){
       state.deviceID = user.deviceID;
       state.paired = connectionData.paired;
       state.serverAddress = connectionData.serverAddress;
-      state.serverPubKey = sjcl.ecc.deserialize(connectionData.serverPubKey);
-      state.userKeys = {
-        priv: sjcl.ecc.deserialize(user.keys.priv),
-        pub: sjcl.ecc.deserialize(user.keys.pub)
-      };
 
-      console.log("Already paired.");
-      init(userID, username);
-      console.log("Loaded user `" + username + "` (" + userID + ")");
+      const loadServerPubKey = window.crypto.subtle.importKey(
+        "jwk",
+        connectionData.serverPubKey,
+        {
+          name: "ECDSA",
+          namedCurve: "P-384"
+        },
+        false,
+        ["verify"]
+      );
+
+      // Currently unused
+      const loadClientPub = window.crypto.subtle.importKey(
+        "jwk",
+        user.keys.publicKey,
+        {
+          name: "ECDSA",
+          namedCurve: "P-384"
+        },
+        false,
+        []
+      );
+
+      const loadClientPriv = window.crypto.subtle.importKey(
+        "jwk",
+        user.keys.privateKey,
+        {
+          name: "ECDSA",
+          namedCurve: "P-384"
+        },
+        false,
+        ["sign"]
+      );
+
+      Promise.all([loadServerPubKey, loadClientPub, loadClientPriv])
+        .then(([serverPubKey, clientPub, clientPriv]) => {
+          state.serverPubKey = serverPubKey;
+          state.userKeys = {
+            privateKey: clientPriv,
+            publicKey: clientPub
+          };
+        }).then(() => {
+          console.log("Already paired.");
+          init(userID, username);
+          console.log("Loaded user `" + username + "` (" + userID + ")");
+        });
     });
   }
 
@@ -479,4 +574,3 @@ var selfpass = (function(){
 })();
 
 window.selfpass = selfpass;
-window.sjcl = sjcl;
