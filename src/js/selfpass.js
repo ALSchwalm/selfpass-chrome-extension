@@ -65,7 +65,8 @@ var selfpass = (function(){
         key,
         ciphertextWithTag
       ).then((decryptedView) => {
-        return new Uint8Array(decryptedView);
+        const decoder = new window.TextDecoder("utf-8");
+        return decoder.decode(decryptedView);
       });
     },
 
@@ -101,9 +102,29 @@ var selfpass = (function(){
     },
 
     sha256: function(str) {
-      var buffer = new window.TextEncoder("utf-8").encode(str);
-      return window.crypto.subtle.digest("SHA-256", buffer).then(raw => {
-        return base64.fromByteArray(new Uint8Array(raw));
+      return Promise.resolve(str).then(str => {
+        var buffer = new window.TextEncoder("utf-8").encode(str);
+        return window.crypto.subtle.digest("SHA-256", buffer).then(raw => {
+          return base64.fromByteArray(new Uint8Array(raw));
+        });
+      });
+    },
+
+    signECDSA(key, message) {
+      var buffer = new window.TextEncoder("utf-8").encode(message);
+      return window.crypto.subtle.sign(
+        {
+          name: "ECDSA",
+          hash: {name: "SHA-256"}
+        },
+        key,
+        buffer
+      ).then(raw => {
+        const signature = new Uint8Array(raw);
+        return {
+          r: base64.fromByteArray(signature.slice(0, signature.length/2)),
+          s: base64.fromByteArray(signature.slice(signature.length/2))
+        };
       });
     },
 
@@ -116,60 +137,71 @@ var selfpass = (function(){
         true,
         ["sign", "verify"]
       );
+    },
+
+    generateECDHKeys() {
+      return window.crypto.subtle.generateKey(
+        {
+          name: "ECDH",
+          namedCurve: "P-384"
+        },
+        true,
+        ["deriveKey"]
+      );
     }
   };
 
-  function sendEncryptedRequest(method, data, callback) {
-    const tempKeys = sjcl.ecc.elGamal.generateKeys(384);
-    const tempPub = tempKeys.pub;
-    const tempPriv = tempKeys.sec;
-    const tempPoint = tempPub.get();
+  function sendEncryptedRequest(method, data) {
+    cryptography.generateECDHKeys().then(tempKeys => {
+      const tempPubKey = tempKeys.publicKey;
+      const tempPrivKey = tempKeys.privateKey;
 
-    const payload = {
-      public_key: crypto.publicKeyToJSON(tempPub)
-    };
+      const exportedPubKey = window.crypto.subtle.exportKey("jwk", tempPubKey)
+              .then(exportedPubKey => {
+                const pubKeyStr = JSON.stringify({
+                  public_key: exportedPubKey
+                });
+                return window.btoa(pubKeyStr);
+              });
 
-    const encodedPayload = b64.fromBits(
-      sjcl.codec.utf8String.toBits(JSON.stringify(payload)));
+      const signature = exportedPubKey.then(exportedPubKey=> {
+        return cryptography.signECDSA(state.userKeys.privateKey,
+                                      exportedPubKey);
+      });
 
-    const payloadHash = sjcl.hash.sha256.hash(encodedPayload);
+      Promise.all([exportedPubKey, signature])
+        .then(([exportedPubKey, signature]) => {
+          const message = {
+            payload: exportedPubKey,
+            signature: signature,
+            user_id: state.userID,
+            device_id: state.deviceID
+          };
 
-    console.log("public_key:", crypto.publicKeyToJSON(state.userKeys.pub));
-    console.log("Computed hash:", b64.fromBits(payloadHash));
+          $.ajax({
+            type: "POST",
+            url: state.serverAddress + "/hello",
+            data: JSON.stringify(message),
+            contentType: "application/json",
+            dataType: 'json',
+            success: function(response) {
+              // const payloadHash = sjcl.hash.sha256.hash(response.payload);
+              // const signature = crypto.signatureFromJSON(response.signature);
+              // state.serverPubKey.verify(payloadHash, signature);
 
-    const signature = state.userKeys.priv.sign(payloadHash);
+              // const serverTempPubKey = crypto.publicKeyFromJSON(
+              //   JSON.parse(atob(response.payload)).public_key);
 
-    const signatureLength = sjcl.bitArray.bitLength(signature);
-    const r = sjcl.bitArray.bitSlice(signature, 0, signatureLength/2);
-    const s = sjcl.bitArray.bitSlice(signature, signatureLength/2, signatureLength);
-
-    const message = {
-      payload: encodedPayload,
-      signature: {
-        r: b64.fromBits(r),
-        s: b64.fromBits(s)
-      },
-      user_id: state.userID,
-      device_id: state.deviceID
-    };
-
-    $.ajax({
-      type: "POST",
-      url: state.serverAddress + "/hello",
-      data: JSON.stringify(message),
-      contentType: "application/json",
-      dataType: 'json',
-      success: function(response) {
-        const payloadHash = sjcl.hash.sha256.hash(response.payload);
-        const signature = crypto.signatureFromJSON(response.signature);
-        state.serverPubKey.verify(payloadHash, signature);
-
-        const serverTempPubKey = crypto.publicKeyFromJSON(
-          JSON.parse(atob(response.payload)).public_key);
-
-        console.log(b64.fromBits(tempPriv.dh(serverTempPubKey)));
-      }
+              // console.log(b64.fromBits(tempPriv.dh(serverTempPubKey)));
+            }
+          });
+        });
     });
+
+    // const signatureLength = sjcl.bitArray.bitLength(signature);
+    // const r = sjcl.bitArray.bitSlice(signature, 0, signatureLength/2);
+    // const s = sjcl.bitArray.bitSlice(signature, signatureLength/2, signatureLength);
+
   }
 
   function parseUrl(url) {
@@ -240,12 +272,14 @@ var selfpass = (function(){
 
   function sendUpdatedKeystore(keystore) {
     if (!isLoggedIn()) {
-      console.error("Cannot sendUpdatedKeystore before logging in.");
-      return;
+      throw Error("Cannot sendUpdatedKeystore before logging in.");
     }
-    var encryptedKeystore = encrypt(state.userID, state.masterKey,
-                                    JSON.stringify(keystore));
-    sendEncryptedRequest("update-keystore", JSON.stringify(encryptedKeystore));
+    return cryptography.symmetricEncrypt(state.masterKey,
+                                         JSON.stringify(keystore))
+      .then(encryptedKeystore => {
+        encryptedKeystore["user_id"] = state.userID;
+        sendEncryptedRequest("update-keystore", JSON.stringify(encryptedKeystore));
+      });
   }
 
   function isPaired() {
@@ -259,8 +293,7 @@ var selfpass = (function(){
 
   function loginFirstTime(masterKey_) {
     if (!isPaired()) {
-      console.error("Cannot login before pairing.");
-      return null;
+      throw Error("Cannot login before pairing.");
     }
 
     return cryptography.expandPassword(masterKey_, state.userID).then(masterKey => {
@@ -279,43 +312,44 @@ var selfpass = (function(){
 
           // This should be an empty object. Send it so the server
           // has something stored for the new user.
-          // sendUpdatedKeystore(state.keystore);
+          sendUpdatedKeystore(state.keystore);
         });
     });
   }
 
   function login(masterKey_, onSuccess, onError) {
     if (!isPaired()) {
-      console.error("Cannot login before pairing.");
-      return;
+      throw Error("Cannot login before pairing.");
     }
-    const providedKey = expandPass(masterKey_, state.userID);
-    console.log("Reading current keystore.");
 
-    chrome.storage.local.get("keystores", function(result){
-      try {
+    return cryptography.expandPassword(masterKey_, state.userID).then(providedKey => {
+      console.log("Reading current keystore.");
+
+      chrome.storage.local.get("keystores", function(result){
         const encryptedKeystore = result.keystores[state.userID];
-        const decryptedKeystore = decrypt(encryptedKeystore,
-                                          providedKey);
-        const parsedKeystore = JSON.parse(decryptedKeystore);
 
-        console.log("Used provided key to decrypt current keystore");
+        cryptography.symmetricDecrypt(providedKey, encryptedKeystore)
+          .then(decryptedKeystore => {
+            const parsedKeystore = JSON.parse(decryptedKeystore);
 
-        state.masterKey = providedKey;
-        console.log("Getting updated keystore.");
-        getCurrentKeystore();
+            console.log("Used provided key to decrypt current keystore");
 
-        console.log("Finished logging in.");
-        if (onSuccess) {
-          onSuccess();
-        }
-      } catch(err) {
-        state.masterKey = null;
-        console.log("Error logging in:", err);
-        if (onError) {
-          onError(err);
-        }
-      }
+            state.masterKey = providedKey;
+            console.log("Getting updated keystore.");
+            // getCurrentKeystore();
+          }).then(() => {
+            console.log("Finished logging in.");
+            if (onSuccess) {
+              onSuccess();
+            }
+          }).catch(error => {
+            state.masterKey = null;
+            console.error("Error logging in:", error);
+            if (onError) {
+              onError(error);
+            }
+          });
+      });
     });
   }
 
@@ -370,10 +404,7 @@ var selfpass = (function(){
         success: function(encryptedResponse) {
           cryptography.symmetricDecrypt(expandedAccessKey,
                                         encryptedResponse).then(response => {
-            const decoder = new window.TextDecoder("utf-8");
-            const decodedResponse = decoder.decode(response);
-
-            const message = JSON.parse(decodedResponse);
+            const message = JSON.parse(response);
 
             return window.crypto.subtle.importKey(
               "jwk",
