@@ -104,14 +104,14 @@ var selfpass = (function(){
       return base64.fromByteArray(new Uint8Array(hash));
     },
 
-    async signECDSA(key, message) {
+    async signECDSA(privateKey, message) {
       const buffer = new window.TextEncoder("utf-8").encode(message);
       const signatureView = await window.crypto.subtle.sign(
         {
           name: "ECDSA",
           hash: {name: "SHA-256"}
         },
-        key,
+        privateKey,
         buffer
       );
 
@@ -120,6 +120,19 @@ var selfpass = (function(){
         r: base64.fromByteArray(signature.slice(0, signature.length/2)),
         s: base64.fromByteArray(signature.slice(signature.length/2))
       };
+    },
+
+    verifyECDSA(publicKey, message, signature) {
+      const buffer = new window.TextEncoder("utf-8").encode(message);
+      return window.crypto.subtle.verify(
+        {
+          name: "ECDSA",
+          hash: {name: "SHA-256"}
+        },
+        publicKey,
+        signature,
+        buffer
+      );
     },
 
     generateECDSAKeys() {
@@ -140,7 +153,7 @@ var selfpass = (function(){
           namedCurve: "P-384"
         },
         true,
-        ["deriveKey"]
+        ["deriveKey", "deriveBits"]
       );
     }
   };
@@ -170,21 +183,67 @@ var selfpass = (function(){
       data: JSON.stringify(message),
       contentType: "application/json",
       dataType: 'json',
-      success: function(response) {
-        // const payloadHash = sjcl.hash.sha256.hash(response.payload);
-        // const signature = crypto.signatureFromJSON(response.signature);
-        // state.serverPubKey.verify(payloadHash, signature);
+      success: async function(response) {
+        const r = base64.toByteArray(response.signature.r);
+        const s = base64.toByteArray(response.signature.s);
 
-        // const serverTempPubKey = crypto.publicKeyFromJSON(
-        //   JSON.parse(atob(response.payload)).public_key);
+        const signature = new Uint8Array(r.length + s.length);
+        signature.set(r, 0);
+        signature.set(s, r.length);
 
-        // console.log(b64.fromBits(tempPriv.dh(serverTempPubKey)));
+        const validSignature =
+                await cryptography.verifyECDSA(state.serverPubKey,
+                                               response.payload,
+                                               signature);
+        if (!validSignature) {
+          throw Error("Invalid signature");
+        }
+
+        const parsedResponse = JSON.parse(window.atob(response.payload));
+        const serverTempPubKey = await window.crypto.subtle.importKey(
+          "jwk",
+          parsedResponse.public_key,
+          {
+            name: "ECDH",
+            namedCurve: "P-384"
+          },
+          true,
+          []);
+
+        const tempSymmetricKeyBits = await window.crypto.subtle.deriveBits(
+          {
+            name: "ECDH",
+            namedCurve: "P-384",
+            public: serverTempPubKey
+          },
+          tempPrivKey,
+          256
+        );
+
+        const bitsAsPKDF2Key = await window.crypto.subtle.importKey(
+          "raw",
+          tempSymmetricKeyBits,
+          {
+            name: "PBKDF2"
+          },
+          false,
+          ["deriveKey"]
+        );
+
+        const tempSymmetricKey = await window.crypto.subtle.deriveKey(
+          {
+            name: "PBKDF2",
+            salt: base64.toByteArray(parsedResponse.session_id),
+            iterations: 100000,
+            hash: "SHA-256"
+          },
+          bitsAsPKDF2Key,
+          {name: "AES-GCM", length: 256},
+          true,
+          ["encrypt", "decrypt"]
+        );
       }
     });
-
-    // const signatureLength = sjcl.bitArray.bitLength(signature);
-    // const r = sjcl.bitArray.bitSlice(signature, 0, signatureLength/2);
-    // const s = sjcl.bitArray.bitSlice(signature, signatureLength/2, signatureLength);
   }
 
   function parseUrl(url) {
@@ -380,13 +439,13 @@ var selfpass = (function(){
                                                              encryptedResponse);
         const message = JSON.parse(response);
         const serverPubKey = await window.crypto.subtle.importKey(
-              "jwk",
-              message.public_key,
-              {
-                name: "ECDSA",
-                namedCurve: "P-384"
-              },
-              true,
+          "jwk",
+          message.public_key,
+          {
+            name: "ECDSA",
+            namedCurve: "P-384"
+          },
+          true,
           ["verify"]);
 
         state.serverPubKey = serverPubKey;
