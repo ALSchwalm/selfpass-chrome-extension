@@ -390,6 +390,7 @@ var selfpass = (function(){
 
         console.log("Used provided key to decrypt current keystore");
 
+        state.keystore = parsedKeystore;
         state.masterKey = providedKey;
         console.log("Getting updated keystore.");
         getCurrentKeystore();
