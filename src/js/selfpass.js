@@ -158,7 +158,52 @@ var selfpass = (function(){
     }
   };
 
-  async function sendEncryptedRequest(method, data) {
+  async function completeHello(tempPrivKey, response) {
+    const r = base64.toByteArray(response.signature.r);
+    const s = base64.toByteArray(response.signature.s);
+
+    const signature = new Uint8Array(r.length + s.length);
+    signature.set(r, 0);
+    signature.set(s, r.length);
+
+    const validSignature =
+        await cryptography.verifyECDSA(state.serverPubKey,
+                                       response.payload,
+                                       signature);
+    if (!validSignature) {
+      throw Error("Invalid signature");
+    }
+
+    const parsedResponse = JSON.parse(window.atob(response.payload));
+    const serverTempPubKey = await window.crypto.subtle.importKey(
+      "jwk",
+      parsedResponse.public_key,
+      {
+        name: "ECDH",
+        namedCurve: "P-384"
+      },
+      false,
+      []);
+
+    const tempSymmetricKey = await window.crypto.subtle.deriveKey(
+      {
+        name: "ECDH",
+        namedCurve: "P-384",
+        public: serverTempPubKey
+      },
+      tempPrivKey,
+      {
+        name: "AES-GCM",
+        length: 256
+      },
+      false,
+      ["encrypt", "decrypt"]
+    );
+
+    return [tempSymmetricKey, parsedResponse.session_id];
+  }
+
+  async function sendEncryptedRequest(method, data, callback) {
     const tempKeys = await cryptography.generateECDHKeys();
     const tempPubKey = tempKeys.publicKey;
     const tempPrivKey = tempKeys.privateKey;
@@ -184,64 +229,34 @@ var selfpass = (function(){
       contentType: "application/json",
       dataType: 'json',
       success: async function(response) {
-        const r = base64.toByteArray(response.signature.r);
-        const s = base64.toByteArray(response.signature.s);
+        const [tempSharedKey, session_id] =
+                await completeHello(tempPrivKey, response);
 
-        const signature = new Uint8Array(r.length + s.length);
-        signature.set(r, 0);
-        signature.set(s, r.length);
+        const message = {
+          "request": method,
+          "data": data
+        };
+        const payload = await cryptography.symmetricEncrypt(tempSharedKey,
+                                                            JSON.stringify(message));
 
-        const validSignature =
-                await cryptography.verifyECDSA(state.serverPubKey,
-                                               response.payload,
-                                               signature);
-        if (!validSignature) {
-          throw Error("Invalid signature");
-        }
+        payload["session_id"] = session_id;
 
-        const parsedResponse = JSON.parse(window.atob(response.payload));
-        const serverTempPubKey = await window.crypto.subtle.importKey(
-          "jwk",
-          parsedResponse.public_key,
-          {
-            name: "ECDH",
-            namedCurve: "P-384"
-          },
-          true,
-          []);
-
-        const tempSymmetricKeyBits = await window.crypto.subtle.deriveBits(
-          {
-            name: "ECDH",
-            namedCurve: "P-384",
-            public: serverTempPubKey
-          },
-          tempPrivKey,
-          256
-        );
-
-        const bitsAsPKDF2Key = await window.crypto.subtle.importKey(
-          "raw",
-          tempSymmetricKeyBits,
-          {
-            name: "PBKDF2"
-          },
-          false,
-          ["deriveKey"]
-        );
-
-        const tempSymmetricKey = await window.crypto.subtle.deriveKey(
-          {
-            name: "PBKDF2",
-            salt: base64.toByteArray(parsedResponse.session_id),
-            iterations: 100000,
-            hash: "SHA-256"
-          },
-          bitsAsPKDF2Key,
-          {name: "AES-GCM", length: 256},
-          true,
-          ["encrypt", "decrypt"]
-        );
+        $.ajax({
+          type: "POST",
+          url: state.serverAddress + "/request",
+          data: JSON.stringify(payload),
+          contentType: "application/json",
+          dataType: 'json',
+          success: async function(response){
+            if (typeof(callback) !== "undefined") {
+              const decrypted_response =
+                await cryptography.symmetricDecrypt(tempSharedKey, response);
+              const decoded_response = JSON.parse(decrypted_response);
+              console.log(decoded_response);
+              callback(decoded_response);
+            }
+          }
+        });
       }
     });
   }
@@ -290,10 +305,11 @@ var selfpass = (function(){
   }
 
   function getCurrentKeystore(callback) {
-    sendEncryptedRequest("retrieve-keystore", undefined, function(response){
-      var encryptedKeystore = JSON.parse(response["data"]);
-      var decryptedKeystore = decrypt(encryptedKeystore, state.masterKey);
-      var parsedKeystore = JSON.parse(decryptedKeystore);
+    sendEncryptedRequest("retrieve-keystore", undefined, async function(response){
+      const encryptedKeystore = JSON.parse(response["data"]);
+      const decryptedKeystore =
+        await cryptography.symmetricDecrypt(state.masterKey, encryptedKeystore);
+      const parsedKeystore = JSON.parse(decryptedKeystore);
 
       if (typeof(callback) === "undefined") {
         state.keystore = parsedKeystore;
@@ -376,8 +392,8 @@ var selfpass = (function(){
 
         state.masterKey = providedKey;
         console.log("Getting updated keystore.");
+        getCurrentKeystore();
 
-        // getCurrentKeystore();
         console.log("Finished logging in.");
         if (onSuccess) {
           onSuccess();
