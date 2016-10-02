@@ -12,6 +12,11 @@ import Settings from 'material-ui/svg-icons/action/settings';
 import Exit from 'material-ui/svg-icons/action/exit-to-app';
 import RaisedButton from 'material-ui/RaisedButton';
 
+import LoggedOutView from './logged-out-view.jsx';
+import UnpairedView from './unpaired-view.jsx';
+
+const selfpass = () => chrome.extension.getBackgroundPage().selfpass;
+
 class SiteGrid extends React.Component {
   render() {
     return (
@@ -100,6 +105,26 @@ class App extends React.Component {
   }
 
   render() {
+    if (!selfpass().isPaired()) {
+      return (
+        <MuiThemeProvider>
+          <div style={{width:"280px", margin:"auto"}}>
+            <UnpairedView />
+          </div>
+        </MuiThemeProvider>
+      )
+    } else if (!selfpass().isLoggedIn()) {
+      return (
+        <MuiThemeProvider>
+          <div style={{width:"280px", margin:"auto"}}>
+            <LoggedOutView />
+          </div>
+        </MuiThemeProvider>
+      )
+    }
+
+    const credentials = selfpass().keystore();
+
     const style = {
       rightBar: {
         marginLeft: "256px",
@@ -109,7 +134,7 @@ class App extends React.Component {
 
     var view;
     if (this.state.activeView === "keystore") {
-      view = <KeystoreView credentialItems={this.props.credentials} />
+      view = <KeystoreView credentialItems={credentials} />
     }
 
     return <MuiThemeProvider>
@@ -134,12 +159,15 @@ class App extends React.Component {
 
 document.addEventListener("DOMContentLoaded", function() {
   injectTapEventPlugin();
-  chrome.runtime.sendMessage({message:"get-keystore"}, function(response){
-    console.log(response)
 
+  function renderApp() {
     ReactDOM.render(
-      <App credentials={response} />,
+      <App />,
       document.getElementById('container')
     );
-  })
+  }
+  renderApp();
+  setInterval(function() {
+    renderApp();
+  }, 500);
 });

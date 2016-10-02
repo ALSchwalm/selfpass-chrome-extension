@@ -16,105 +16,10 @@ import Exit from 'material-ui/svg-icons/action/exit-to-app';
 import NavigationClose from 'material-ui/svg-icons/navigation/close';
 import Settings from 'material-ui/svg-icons/action/settings';
 
+import LoggedOutView from './logged-out-view.jsx';
+import UnpairedView from './unpaired-view.jsx';
 
-var selfpass = () => chrome.extension.getBackgroundPage().selfpass;
-
-class UnpairedView extends React.Component {
-  constructor(...args) {
-    super(...args);
-
-    this.pairDevice = e => {
-      console.log(this.accessKey.input.value);
-      selfpass().pairDevice(
-        this.accessKey.input.value,
-        this.remoteServerLocation.input.value,
-        this.username.input.value,
-        this.masterKey.input.value);
-    }
-  }
-
-  render() {
-    const style = {
-      input: {
-        width: "310px"
-      }
-    };
-
-    return (
-      <div>
-        <TextField
-            hintText="https://mydomain.com:4999"
-            ref={(ref) => this.remoteServerLocation = ref}
-            floatingLabelFixed={true}
-            style={style.input}
-            floatingLabelText="Server Address and Port"/>
-        <TextField
-            hintText="NQ4A-X3NJ-KXAZ-V53T-NWUR-EKFD"
-            ref={(ref) => this.accessKey = ref}
-            style={style.input}
-            floatingLabelFixed={true}
-            floatingLabelText="Access Key"/>
-        <TextField
-            style={style.input}
-            ref={(ref) => this.username = ref}
-            floatingLabelText="Username"/>
-        <TextField
-            style={style.input}
-            ref={(ref) => this.masterKey = ref}
-            floatingLabelText="Master Password"
-            type="password"/>
-        <RaisedButton onClick={this.pairDevice}
-                      label="Pair Device"
-                      fullWidth={true}
-                      primary={true} />
-      </div>
-    );
-  }
-}
-
-class LoggedOutView extends React.Component {
-  constructor(...args) {
-    super(...args);
-
-    this.state = {
-      isInError: false
-    }
-
-    this.login = () => {
-      selfpass().login(this.masterKey.input.value, null, () => {
-        this.setState({
-          isInError: true
-        });
-      });
-    };
-
-    this.onKeyPress = (e) => {
-      if (e.key === 'Enter') {
-        this.login();
-      }
-    }
-  }
-
-  render() {
-    return (
-      <div>
-        <TextField
-            ref={(ref) => this.username = ref}
-            floatingLabelText="Username"
-            defaultValue={selfpass().state().username}
-            type="input"/>
-        <TextField
-            ref={(ref) => this.masterKey = ref}
-            floatingLabelText="Master Password"
-            onKeyPress={this.onKeyPress}
-            errorText={this.state.isInError ? "Incorrect password" : null}
-            type="password"/>
-        <br />
-        <RaisedButton onClick={this.login} fullWidth={true} label="Login" primary={true} />
-      </div>
-    );
-  }
-}
+const selfpass = () => chrome.extension.getBackgroundPage().selfpass;
 
 class SelfPassView extends React.Component {
   logout() {
