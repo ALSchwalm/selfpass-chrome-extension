@@ -105,55 +105,54 @@ class App extends React.Component {
   }
 
   render() {
-    if (!selfpass().isPaired()) {
-      return (
-        <MuiThemeProvider>
-          <div style={{width:"280px", margin:"auto"}}>
-            <UnpairedView />
-          </div>
-        </MuiThemeProvider>
-      )
-    } else if (!selfpass().isLoggedIn()) {
-      return (
-        <MuiThemeProvider>
-          <div style={{width:"280px", margin:"auto"}}>
-            <LoggedOutView />
-          </div>
-        </MuiThemeProvider>
-      )
-    }
-
-    const credentials = selfpass().keystore();
-
     const style = {
       rightBar: {
         marginLeft: "256px",
         marginTop: "0px"
+      },
+      minimal: {
+        width:"280px",
+        margin:"auto"
       }
     }
+
+    if (!selfpass().isPaired()) {
+      return (
+        <div style={style.minimal}>
+          <UnpairedView />
+        </div>
+      )
+    } else if (!selfpass().isLoggedIn()) {
+      return (
+        <div style={style.minimal}>
+          <LoggedOutView />
+        </div>
+      )
+    }
+
+    const credentials = selfpass().keystore();
 
     var view;
     if (this.state.activeView === "keystore") {
       view = <KeystoreView credentialItems={credentials} />
     }
 
-    return <MuiThemeProvider>
-        <div>
-          <Drawer open={true}>
-            <AppBar title="SelfPass"
-                    showMenuIconButton={false} />
-            <MenuItem primaryText="Keystore" leftIcon={<VPNKey />} />
-            <MenuItem primaryText="Settings" leftIcon={<Settings />} />
-          </Drawer>
-          <div style={style.rightBar}>
-            <AppBar showMenuIconButton={false}
-                    iconElementRight={<RaisedButton label="Logout"
+    return (
+      <div>
+        <Drawer open={true}>
+          <AppBar title="SelfPass"
+                  showMenuIconButton={false} />
+          <MenuItem primaryText="Keystore" leftIcon={<VPNKey />} />
+          <MenuItem primaryText="Settings" leftIcon={<Settings />} />
+        </Drawer>
+        <div style={style.rightBar}>
+          <AppBar showMenuIconButton={false}
+                  iconElementRight={<RaisedButton label="Logout"
                                                     onClick={this.logout}
                                                     icon={<Exit />} /> } />
-            {view}
-          </div>
+          {view}
         </div>
-    </MuiThemeProvider>
+      </div>)
   }
 }
 
@@ -162,7 +161,9 @@ document.addEventListener("DOMContentLoaded", function() {
 
   function renderApp() {
     ReactDOM.render(
-      <App />,
+      <MuiThemeProvider>
+        <App />
+      </MuiThemeProvider>,
       document.getElementById('container')
     );
   }
