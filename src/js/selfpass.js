@@ -10,6 +10,7 @@ var selfpass = (function(){
     userKeys: null,
     serverAddress: null,
     serverPubKey: null,
+    lastKeystoreTag: null,
     keystore: {},
 
     masterKey: null
@@ -248,11 +249,11 @@ var selfpass = (function(){
           contentType: "application/json",
           dataType: 'json',
           success: async function(response){
+            const decrypted_response =
+                  await cryptography.symmetricDecrypt(tempSharedKey, response);
+            const decoded_response = JSON.parse(decrypted_response);
+            console.log(decoded_response);
             if (typeof(callback) !== "undefined") {
-              const decrypted_response =
-                await cryptography.symmetricDecrypt(tempSharedKey, response);
-              const decoded_response = JSON.parse(decrypted_response);
-              console.log(decoded_response);
               callback(decoded_response);
             }
           }
@@ -307,20 +308,21 @@ var selfpass = (function(){
   function getCurrentKeystore(callback) {
     sendEncryptedRequest("retrieve-keystore", undefined, async function(response){
       const encryptedKeystore = JSON.parse(response["data"]);
+
       const decryptedKeystore =
         await cryptography.symmetricDecrypt(state.masterKey, encryptedKeystore);
       const parsedKeystore = JSON.parse(decryptedKeystore);
 
       if (typeof(callback) === "undefined") {
         state.keystore = parsedKeystore;
-      } else {
-        callback(parsedKeystore);
-      }
 
-      chrome.storage.local.set({"keystores": {[state.userID]: encryptedKeystore}},
-                               function(){
-        console.log("Updated keystore");
-      });
+        chrome.storage.local.set({"keystores": {[state.userID]: encryptedKeystore}},
+                                 function(){
+            console.log("Updated keystore");
+        });
+      } else {
+        callback(parsedKeystore, encryptedKeystore);
+      }
     });
   }
 
@@ -334,9 +336,25 @@ var selfpass = (function(){
     }
 
     const encryptedKeystore =
-            await cryptography.symmetricEncrypt(state.masterKey, JSON.stringify(keystore));
-    encryptedKeystore["user_id"] = state.userID;
-    sendEncryptedRequest("update-keystore", JSON.stringify(encryptedKeystore));
+          await cryptography.symmetricEncrypt(state.masterKey, JSON.stringify(keystore));
+    const data = {
+      "keystore": encryptedKeystore,
+      "user_id": state.userID,
+      "based_on": state.lastKeystoreTag
+    };
+    sendEncryptedRequest("update-keystore", JSON.stringify(data), function(response){
+      if (response.response === "OUTDATED") {
+        console.log("Current keystore is outdated, getting current keystore");
+        getCurrentKeystore(function(currentKeystore, encryptedKeystore){
+          //TODO merge keystores
+
+          console.log("Got current keystore, sending merged keystore");
+
+          state.lastKeystoreTag = encryptedKeystore.tag;
+          sendUpdatedKeystore(keystore);
+        });
+      }
+    });
   }
 
   function isPaired() {
