@@ -3,6 +3,67 @@ import base64 from "base64-js";
 
 import cryptography from "./cryptography.js";
 
+class Keystore {
+  constructor(store) {
+    if (typeof(store) === "undefined") {
+      this.store = {};
+    } else {
+      this.store = store;
+    }
+  }
+
+  parseURI(uri) {
+    const parser = document.createElement('a');
+    parser.href = uri;
+    return parser;
+  }
+
+  addCredentials(uri, username, password, favicon) {
+    const host = this.parseURI(uri).host;
+    const entry = {
+      host: host,
+      uri: uri,
+      username: username,
+      password: password,
+      favicon: favicon,
+      time: new Date()
+    };
+
+    if (typeof(this.store[host]) === "undefined") {
+      this.store[host] = {};
+    }
+    if (typeof(this.store[host][username] === "undefined")) {
+      this.store[host][username] = [];
+    }
+    this.store[host][username].push(entry);
+  }
+
+  credentialsForUrl(uri) {
+    const host = this.parseURI(uri).host;
+    if (typeof(this.store[host]) === "undefined") {
+      return [];
+    }
+
+    var currentCredentials = [];
+    for(const username in this.store[host]) {
+      const history = this.store[host][username];
+      currentCredentials.push(history[history.length]);
+    }
+    return currentCredentials;
+  }
+
+  serialize() {
+    return JSON.stringify(this.store);
+  }
+
+  removeSite(uri){
+    const host = this.parseURI(uri).host;
+
+    // This should be removed after the next merge
+    this.store[host] = null;
+  }
+}
+
 var selfpass = (function(){
   var state = {
     paired: false,
@@ -13,7 +74,7 @@ var selfpass = (function(){
     serverAddress: null,
     serverPubKey: null,
     lastKeystoreTag: null,
-    keystore: {},
+    keystore: new Keystore(),
 
     masterKey: null
   };
@@ -121,37 +182,6 @@ var selfpass = (function(){
     });
   }
 
-  function parseUrl(url) {
-    const parser = document.createElement('a');
-    parser.href = url;
-    return parser;
-  }
-
-  function saveCredentialsForUrl(url, username, password, favicon) {
-    const host = parseUrl(url).host;
-    if (typeof(state.keystore[host]) === "undefined") {
-      state.keystore[host] = [];
-    }
-    state.keystore[host].push({
-      username: username,
-      password: password,
-      url: url,
-      host: host,
-      favicon: favicon
-    });
-    sendUpdatedKeystore(state.keystore);
-  }
-
-  function credentialsForUrl(url) {
-    const host = parseUrl(url).host;
-    if (typeof(state.keystore[host]) === "undefined") {
-      return [];
-    }
-
-    //TODO return ranking based on URL similarity
-    return state.keystore[host];
-  }
-
   function generateDeviceID() {
     let id = new Uint8Array(32);
     window.crypto.getRandomValues(id);
@@ -170,7 +200,7 @@ var selfpass = (function(){
 
       const decryptedKeystore =
         await cryptography.symmetricDecrypt(state.masterKey, encryptedKeystore);
-      const parsedKeystore = JSON.parse(decryptedKeystore);
+      const parsedKeystore = new Keystore(JSON.parse(decryptedKeystore));
 
       if (typeof(callback) === "undefined") {
         state.keystore = parsedKeystore;
@@ -196,7 +226,7 @@ var selfpass = (function(){
     }
 
     const encryptedKeystore =
-          await cryptography.symmetricEncrypt(state.masterKey, JSON.stringify(keystore));
+          await cryptography.symmetricEncrypt(state.masterKey, keystore.serialize());
     const data = {
       "keystore": encryptedKeystore,
       "user_id": state.userID,
@@ -205,12 +235,13 @@ var selfpass = (function(){
     sendEncryptedRequest("update-keystore", JSON.stringify(data), function(response){
       if (response.response === "OUTDATED") {
         console.log("Current keystore is outdated, getting current keystore");
-        getCurrentKeystore(function(currentKeystore, encryptedKeystore){
+        getCurrentKeystore(function(currentKeystore, encryptedCurrentKeystore){
           //TODO merge keystores
 
+          chrome.storage.local.set({"keystores": {[state.userID]: encryptedKeystore}});
           console.log("Got current keystore, sending merged keystore");
 
-          state.lastKeystoreTag = encryptedKeystore.tag;
+          state.lastKeystoreTag = encryptedCurrentKeystore.tag;
           sendUpdatedKeystore(keystore);
         });
       }
@@ -237,7 +268,7 @@ var selfpass = (function(){
     console.log("Finished First time log in.");
 
     const encryptedKeystore =
-            await cryptography.symmetricEncrypt(state.masterKey, JSON.stringify(state.keystore));
+          await cryptography.symmetricEncrypt(state.masterKey, state.keystore.serialize());
 
     chrome.storage.local.set(
       {"keystores": {[state.userID]: encryptedKeystore}},
@@ -268,7 +299,7 @@ var selfpass = (function(){
 
         console.log("Used provided key to decrypt current keystore");
 
-        state.keystore = parsedKeystore;
+        state.keystore = new Keystore(parsedKeystore);
         state.masterKey = providedKey;
         console.log("Getting updated keystore.");
         getCurrentKeystore();
@@ -417,7 +448,7 @@ var selfpass = (function(){
 
   function logout() {
     state.masterKey = null;
-    state.keystore = {};
+    state.keystore = null;
     console.log("Logged out.");
   }
 
@@ -490,7 +521,7 @@ var selfpass = (function(){
   chrome.runtime.onMessage.addListener(function(request, sender, sendResponse){
     console.log(request, sender);
     if (request.message === "get-credentials") {
-      sendResponse(credentialsForUrl(sender.tab.url));
+      sendResponse(state.keystore.credentialsForUrl(sender.tab.url));
     } else if (request.message === "get-keystore") {
       sendResponse(state.keystore);
     } else if (request.message === "login-status") {
@@ -498,10 +529,11 @@ var selfpass = (function(){
     } else if (request.message === "logout") {
       logout();
     } else if (request.message === "save-credentials") {
-      saveCredentialsForUrl(request.url,
-                            request.username,
-                            request.password,
-                            request.favicon);
+      state.keystore.addCredentials(request.url,
+                                    request.username,
+                                    request.password,
+                                    request.favicon);
+      sendUpdatedKeystore(state.keystore);
     } else if (request.message === "fill-credentials"         ||
                request.message === "fill-generated-password"  ||
                request.message === "close-fill-popup"         ||
@@ -521,8 +553,6 @@ var selfpass = (function(){
     pairDevice: pairDevice,
     isPaired: isPaired,
     getCurrentKeystore: getCurrentKeystore,
-    credentialsForUrl: credentialsForUrl,
-    saveCredentialsForUrl: saveCredentialsForUrl,
     keystore: function(){return state.keystore;},
     state: function(){return state;}
   };

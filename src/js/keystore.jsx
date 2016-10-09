@@ -19,10 +19,21 @@ const selfpass = () => chrome.extension.getBackgroundPage().selfpass;
 
 class SiteGrid extends React.Component {
   render() {
+    const credentialItems = this.props.credentialItems;
+    const currentCredentials = [];
+
+    Object.keys(credentialItems).map((host) => {
+      Object.keys(credentialItems[host]).map((username) => {
+        const credentialHistory = credentialItems[host][username];
+
+        currentCredentials.push(credentialHistory[credentialHistory.length-1])
+      });
+    });
+
     return (
       <GridList cellHeight={100}
                 cols={4}>
-        {this.props.credentialItems.map(function(item, index) {
+        {currentCredentials.map((item, index) => {
            var img = null;
            if (item.favicon) {
              img = <img style={{width: "24px", height:"24px", paddingRight: "10px"}}
@@ -55,17 +66,15 @@ class KeystoreView extends React.Component {
   }
 
   filterCredentials(s) {
-    var list = [];
-    for (const key in this.props.credentialItems) {
-      list = list.concat(this.props.credentialItems[key]);
+    var credentials = {};
+
+    for (const host in this.props.keystore.store) {
+      if (host.includes(s)) {
+        credentials[host] = this.props.keystore.store[host];
+      }
     }
 
-    return list.filter(function(item){
-      if (item.host.includes(s)) {
-        return true;
-      }
-      return false;
-    });
+    return credentials;
   }
 
   render() {
@@ -134,7 +143,7 @@ class App extends React.Component {
 
     var view;
     if (this.state.activeView === "keystore") {
-      view = <KeystoreView credentialItems={credentials} />
+      view = <KeystoreView keystore={credentials} />
     }
 
     return (

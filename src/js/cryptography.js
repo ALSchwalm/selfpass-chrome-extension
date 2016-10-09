@@ -2,7 +2,7 @@ import base64 from "base64-js";
 
 const cryptography = {
   async symmetricEncrypt(key, plaintext){
-    let iv = new Uint8Array(12);
+    const iv = new Uint8Array(12);
     window.crypto.getRandomValues(iv);
 
     const encoder = new window.TextEncoder("utf-8");
