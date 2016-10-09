@@ -79,6 +79,17 @@ var selfpass = (function(){
     masterKey: null
   };
 
+  function updateUserData(key, value) {
+    if (!isLoggedIn()) {
+      throw Error("Cannot update user info before logging in");
+    }
+
+    chrome.storage.local.get("connectionData", function(result){
+      result.connectionData.users[state.userID][key] = value;
+      chrome.storage.local.set(result);
+    });
+  }
+
   async function completeHello(tempPrivKey, response) {
     const r = base64.toByteArray(response.signature.r);
     const s = base64.toByteArray(response.signature.s);
@@ -124,7 +135,7 @@ var selfpass = (function(){
     return [tempSymmetricKey, parsedResponse.session_id];
   }
 
-  async function sendEncryptedRequest(method, data, callback) {
+  async function sendEncryptedRequest(method, requestData, callback) {
     const tempKeys = await cryptography.generateECDHKeys();
     const tempPubKey = tempKeys.publicKey;
     const tempPrivKey = tempKeys.privateKey;
@@ -155,7 +166,7 @@ var selfpass = (function(){
 
         const message = {
           "request": method,
-          "data": data
+          "data": requestData
         };
         const payload = await cryptography.symmetricEncrypt(tempSharedKey,
                                                             JSON.stringify(message));
@@ -195,7 +206,12 @@ var selfpass = (function(){
   }
 
   function getCurrentKeystore(callback) {
-    sendEncryptedRequest("retrieve-keystore", undefined, async function(response){
+    sendEncryptedRequest("retrieve-keystore", {"current":state.lastKeystoreTag},
+                         async function(response){
+      if (response["response"] === "CURRENT") {
+        //TODO: execute callback?
+        return;
+      }
       const encryptedKeystore = JSON.parse(response["data"]);
 
       const decryptedKeystore =
@@ -205,7 +221,7 @@ var selfpass = (function(){
       if (typeof(callback) === "undefined") {
         state.keystore = parsedKeystore;
         state.lastKeystoreTag = encryptedKeystore.tag;
-
+        updateUserData("lastKeystoreTag", state.lastKeystoreTag);
         chrome.storage.local.set({"keystores": {[state.userID]: encryptedKeystore}},
                                  function(){
             console.log("Updated keystore");
@@ -238,10 +254,12 @@ var selfpass = (function(){
         getCurrentKeystore(function(currentKeystore, encryptedCurrentKeystore){
           //TODO merge keystores
 
+          state.lastKeystoreTag = encryptedCurrentKeystore.tag;
           chrome.storage.local.set({"keystores": {[state.userID]: encryptedKeystore}});
+          updateUserData("lastKeystoreTag", state.lastKeystoreTag);
+
           console.log("Got current keystore, sending merged keystore");
 
-          state.lastKeystoreTag = encryptedCurrentKeystore.tag;
           sendUpdatedKeystore(keystore);
         });
       }
@@ -443,6 +461,7 @@ var selfpass = (function(){
       logout();
     }
     chrome.storage.local.remove("connectionData");
+    chrome.storage.local.remove("keystores." + state.userID);
     state.paired = false;
   }
 
@@ -468,7 +487,8 @@ var selfpass = (function(){
       state.deviceID = user.deviceID;
       state.paired = connectionData.paired;
       state.serverAddress = connectionData.serverAddress;
-      state.lastKeystoreTag = connectionData.lastKeystoreTag;
+      console.log("Loaded lastKeystoreTag:", user.lastKeystoreTag || null);
+      state.lastKeystoreTag = user.lastKeystoreTag || null;
 
       const serverPubKey = await window.crypto.subtle.importKey(
         "jwk",
