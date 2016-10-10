@@ -1,5 +1,7 @@
-import $ from "jquery";
 import base64 from "base64-js";
+import superagent from "superagent";
+import superagentPromise from "superagent-promise";
+const agent = superagentPromise(superagent, Promise);
 
 import cryptography from "./cryptography.js";
 
@@ -135,7 +137,7 @@ var selfpass = (function(){
     return [tempSymmetricKey, parsedResponse.session_id];
   }
 
-  async function sendEncryptedRequest(method, requestData, callback) {
+  async function sendEncryptedRequest(method, requestData) {
     const tempKeys = await cryptography.generateECDHKeys();
     const tempPubKey = tempKeys.publicKey;
     const tempPrivKey = tempKeys.privateKey;
@@ -147,50 +149,42 @@ var selfpass = (function(){
 
     const signature = await cryptography.signECDSA(state.userKeys.privateKey,
                                                    pubKeyStr);
-    const message = {
+    const helloKeyInfo = {
       payload: pubKeyStr,
       signature: signature,
       user_id: state.userID,
       device_id: state.deviceID
     };
 
-    $.ajax({
-      type: "POST",
-      url: state.serverAddress + "/hello",
-      data: JSON.stringify(message),
-      contentType: "application/json",
-      dataType: 'json',
-      success: async function(response) {
-        const [tempSharedKey, session_id] =
-                await completeHello(tempPrivKey, response);
+    // Send our ephemeral public key to the server
+    const helloResponse = await agent.post(state.serverAddress + "/hello")
+          .send(helloKeyInfo)
+          .set('Accept', 'application/json');
 
-        const message = {
-          "request": method,
-          "data": requestData
-        };
-        const payload = await cryptography.symmetricEncrypt(tempSharedKey,
-                                                            JSON.stringify(message));
+    // Do the ECDH and get the ephemeral symmetric key
+    const [tempSharedKey, session_id] =
+          await completeHello(tempPrivKey, helloResponse.body);
 
-        payload["session_id"] = session_id;
 
-        $.ajax({
-          type: "POST",
-          url: state.serverAddress + "/request",
-          data: JSON.stringify(payload),
-          contentType: "application/json",
-          dataType: 'json',
-          success: async function(response){
-            const decrypted_response =
-                  await cryptography.symmetricDecrypt(tempSharedKey, response);
-            const decoded_response = JSON.parse(decrypted_response);
-            console.log(decoded_response);
-            if (typeof(callback) !== "undefined") {
-              callback(decoded_response);
-            }
-          }
-        });
-      }
-    });
+    const plaintextPayload = {
+      "request": method,
+      "data": requestData
+    };
+    const payload = await cryptography.symmetricEncrypt(tempSharedKey,
+                                                        JSON.stringify(plaintextPayload));
+    payload["session_id"] = session_id;
+
+    // Send the actual payload (encrypted with the ephemeral key)
+    const finalResponse = await agent.post(state.serverAddress + "/request")
+          .send(payload)
+          .set('Accept', 'application/json');
+
+    const decryptedResponse =
+          await cryptography.symmetricDecrypt(tempSharedKey, finalResponse.body);
+    const decodedResponse = JSON.parse(decryptedResponse);
+
+    console.log(decodedResponse);
+    return decodedResponse;
   }
 
   function generateDeviceID() {
@@ -205,31 +199,30 @@ var selfpass = (function(){
     return hexID;
   }
 
-  function getCurrentKeystore(callback) {
-    sendEncryptedRequest("retrieve-keystore", {"current":state.lastKeystoreTag},
-                         async function(response){
-      if (response["response"] === "CURRENT") {
-        //TODO: execute callback?
-        return;
-      }
-      const encryptedKeystore = JSON.parse(response["data"]);
+  async function getCurrentKeystore(callback) {
+    const response = await sendEncryptedRequest("retrieve-keystore", {"current":state.lastKeystoreTag});
+    if (response["response"] === "CURRENT") {
+      //TODO: execute callback?
+      return;
+    }
 
-      const decryptedKeystore =
-        await cryptography.symmetricDecrypt(state.masterKey, encryptedKeystore);
-      const parsedKeystore = new Keystore(JSON.parse(decryptedKeystore));
+    const encryptedKeystore = JSON.parse(response["data"]);
 
-      if (typeof(callback) === "undefined") {
-        state.keystore = parsedKeystore;
-        state.lastKeystoreTag = encryptedKeystore.tag;
-        updateUserData("lastKeystoreTag", state.lastKeystoreTag);
-        chrome.storage.local.set({"keystores": {[state.userID]: encryptedKeystore}},
+    const decryptedKeystore =
+          await cryptography.symmetricDecrypt(state.masterKey, encryptedKeystore);
+    const parsedKeystore = new Keystore(JSON.parse(decryptedKeystore));
+
+    if (typeof(callback) === "undefined") {
+      state.keystore = parsedKeystore;
+      state.lastKeystoreTag = encryptedKeystore.tag;
+      updateUserData("lastKeystoreTag", state.lastKeystoreTag);
+      chrome.storage.local.set({"keystores": {[state.userID]: encryptedKeystore}},
                                  function(){
-            console.log("Updated keystore");
-        });
-      } else {
-        callback(parsedKeystore, encryptedKeystore);
-      }
-    });
+          console.log("Updated keystore");
+      });
+    } else {
+      callback(parsedKeystore, encryptedKeystore);
+    }
   }
 
   function isLoggedIn() {
@@ -248,22 +241,21 @@ var selfpass = (function(){
       "user_id": state.userID,
       "based_on": state.lastKeystoreTag
     };
-    sendEncryptedRequest("update-keystore", JSON.stringify(data), function(response){
-      if (response.response === "OUTDATED") {
-        console.log("Current keystore is outdated, getting current keystore");
-        getCurrentKeystore(function(currentKeystore, encryptedCurrentKeystore){
-          //TODO merge keystores
+    const response = await sendEncryptedRequest("update-keystore", JSON.stringify(data));
 
-          state.lastKeystoreTag = encryptedCurrentKeystore.tag;
-          chrome.storage.local.set({"keystores": {[state.userID]: encryptedKeystore}});
-          updateUserData("lastKeystoreTag", state.lastKeystoreTag);
+    if (response.response === "OUTDATED") {
+      console.log("Current keystore is outdated, getting current keystore");
+      getCurrentKeystore(function(currentKeystore, encryptedCurrentKeystore){
+        //TODO merge keystores
 
-          console.log("Got current keystore, sending merged keystore");
+        state.lastKeystoreTag = encryptedCurrentKeystore.tag;
+        chrome.storage.local.set({"keystores": {[state.userID]: encryptedKeystore}});
+        updateUserData("lastKeystoreTag", state.lastKeystoreTag);
 
-          sendUpdatedKeystore(keystore);
-        });
-      }
-    });
+        console.log("Got current keystore, sending merged keystore");
+        sendUpdatedKeystore(keystore);
+      });
+    }
   }
 
   function isPaired() {
@@ -372,49 +364,42 @@ var selfpass = (function(){
     const [userID, deviceID, expandedAccessKey, clientKeys, payload] =
             await generatePairingInfo(combinedAccessKey, username);
 
-    $.ajax({
-      type: 'POST',
-      url: remoteServerLocation + "/pair",
-      data: JSON.stringify(payload),
-      contentType: "application/json",
-      dataType: 'json',
-      success: async function(encryptedResponse) {
-        const response = await cryptography.symmetricDecrypt(expandedAccessKey,
-                                                             encryptedResponse);
-        const message = JSON.parse(response);
-        const serverPubKey = await window.crypto.subtle.importKey(
-          "jwk",
-          message.public_key,
-          {
-            name: "ECDSA",
-            namedCurve: "P-384"
-          },
-          true,
-          ["verify"]);
+    const encryptedResponse = await agent.post(remoteServerLocation + "/pair")
+          .send(payload)
+          .set('Accept', 'application/json');
 
-        state.serverPubKey = serverPubKey;
-        state.deviceID = deviceID;
-        state.serverAddress = remoteServerLocation;
-        state.paired = true;
+    const response = await cryptography.symmetricDecrypt(expandedAccessKey,
+                                                         encryptedResponse.body);
+    const message = JSON.parse(response);
+    const serverPubKey = await window.crypto.subtle.importKey(
+      "jwk",
+      message.public_key,
+      {
+        name: "ECDSA",
+        namedCurve: "P-384"
+      },
+      true,
+      ["verify"]);
 
-        state.userKeys = {
-          publicKey: clientKeys.publicKey,
-          privateKey: clientKeys.privateKey
-        };
+    state.serverPubKey = serverPubKey;
+    state.deviceID = deviceID;
+    state.serverAddress = remoteServerLocation;
+    state.paired = true;
 
-        savePairInfo(remoteServerLocation, username,
-                     userID, deviceID, state.userKeys,
-                     state.serverPubKey).then(() => {
-                           state.paired = true;
-                           init(userID, username);
-                           console.log("Pairing complete");
-                           loginFirstTime(masterKey);
-                         });
-        },
-        error: function() {
-          console.error("An error occurred while pairing device.");
-        }
-    });
+    state.userKeys = {
+      publicKey: clientKeys.publicKey,
+      privateKey: clientKeys.privateKey
+    };
+
+    savePairInfo(remoteServerLocation, username,
+                 userID, deviceID, state.userKeys,
+                 state.serverPubKey).then(() => {
+                   state.paired = true;
+                   init(userID, username);
+
+                   console.log("Pairing complete");
+                   loginFirstTime(masterKey);
+                 });
   }
 
   async function savePairInfo(serverAddress, username, userID, deviceID,
