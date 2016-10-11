@@ -129,18 +129,6 @@ var selfpass = (function(){
     return decodedResponse;
   }
 
-  function generateDeviceID() {
-    let id = new Uint8Array(32);
-    window.crypto.getRandomValues(id);
-    let hexID = '';
-    for (let i = 0; i < id.length; ++i) {
-      let hex = id[i].toString(16);
-      hex = ("0" + hex).substr(-2);
-      hexID += hex;
-    }
-    return hexID;
-  }
-
   async function getCurrentKeystore(skipUpdate) {
     const response = await sendEncryptedRequest("retrieve-keystore", {"current":state.lastKeystoreTag});
     if (response["response"] === "CURRENT") {
@@ -221,8 +209,8 @@ var selfpass = (function(){
     const encryptedKeystore =
           await cryptography.symmetricEncrypt(state.masterKey, state.keystore.serialize());
 
-    chromep.storage.local.set(
-      {"keystores": {[state.userID]: encryptedKeystore}}).then(() => {
+    chromep.storage.local.set({"keystores": {[state.userID]: encryptedKeystore}})
+      .then(() => {
         console.log("Stored encrypted keystore (first time)");
       });
 
@@ -270,7 +258,7 @@ var selfpass = (function(){
 
   async function generatePairingInfo(combinedAccessKey, username) {
     const userID = await cryptography.sha256(username);
-    const deviceID = generateDeviceID();
+    const deviceID = cryptography.generateDeviceID();
     const [accessKeyID, accessKey] = [combinedAccessKey.slice(0, 2),
                                       combinedAccessKey.slice(2)];
 

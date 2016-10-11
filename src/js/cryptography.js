@@ -140,6 +140,12 @@ const cryptography = {
       true,
       ["deriveKey", "deriveBits"]
     );
+  },
+
+  generateDeviceID() {
+    let id = new Uint8Array(32);
+    window.crypto.getRandomValues(id);
+    return base64.fromByteArray(id);
   }
 };
 
