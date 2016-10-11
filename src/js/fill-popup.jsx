@@ -10,6 +10,9 @@ import IconMenu from 'material-ui/IconMenu';
 import MenuItem from 'material-ui/MenuItem';
 import injectTapEventPlugin from 'react-tap-event-plugin';
 
+import ChromePromise from "chrome-promise";
+const chromep = new ChromePromise();
+
 import $ from "jquery";
 
 function closePopup() {
@@ -81,14 +84,13 @@ class FillPopupBox extends React.Component {
 };
 
 
-document.addEventListener("DOMContentLoaded", function() {
+document.addEventListener("DOMContentLoaded", async function() {
   injectTapEventPlugin();
-  chrome.runtime.sendMessage({message:"get-credentials"}, function(credentialList){
-    ReactDOM.render(
-      <MuiThemeProvider>
-        <FillPopupBox credentialList={credentialList}/>
-      </MuiThemeProvider>,
-      document.getElementById('fill-container')
-    );
-  });
+  const credentialList = await chromep.runtime.sendMessage({message:"get-credentials"});
+  ReactDOM.render(
+    <MuiThemeProvider>
+      <FillPopupBox credentialList={credentialList}/>
+    </MuiThemeProvider>,
+    document.getElementById('fill-container')
+  );
 });
