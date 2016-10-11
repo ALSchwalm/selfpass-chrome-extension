@@ -52,7 +52,7 @@ class Keystore {
     var currentCredentials = [];
     for(const username in this.store[host]) {
       const history = this.store[host][username];
-      currentCredentials.push(history[history.length]);
+      currentCredentials.push(history[history.length-1]);
     }
     return currentCredentials;
   }
