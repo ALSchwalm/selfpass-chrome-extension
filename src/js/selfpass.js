@@ -1,9 +1,12 @@
 import base64 from "base64-js";
 import superagent from "superagent";
-import superagentPromise from "superagent-promise";
-const agent = superagentPromise(superagent, Promise);
+import SuperagentPromise from "superagent-promise";
+import ChromePromise from "chrome-promise";
 
 import cryptography from "./cryptography.js";
+
+const agent = SuperagentPromise(superagent, Promise);
+const chromep = new ChromePromise();
 
 class Keystore {
   constructor(store) {
@@ -81,15 +84,14 @@ var selfpass = (function(){
     masterKey: null
   };
 
-  function updateUserData(key, value) {
+  async function updateUserData(key, value) {
     if (!isLoggedIn()) {
       throw Error("Cannot update user info before logging in");
     }
 
-    chrome.storage.local.get("connectionData", function(result){
-      result.connectionData.users[state.userID][key] = value;
-      chrome.storage.local.set(result);
-    });
+    const result = await chromep.storage.local.get("connectionData");
+    result.connectionData.users[state.userID][key] = value;
+    chromep.storage.local.set(result);
   }
 
   async function completeHello(tempPrivKey, response) {
@@ -216,8 +218,8 @@ var selfpass = (function(){
       state.keystore = parsedKeystore;
       state.lastKeystoreTag = encryptedKeystore.tag;
       updateUserData("lastKeystoreTag", state.lastKeystoreTag);
-      chrome.storage.local.set({"keystores": {[state.userID]: encryptedKeystore}},
-                                 function(){
+      chromep.storage.local.set({"keystores": {[state.userID]: encryptedKeystore}})
+        .then(() => {
           console.log("Updated keystore");
       });
     } else {
@@ -249,7 +251,7 @@ var selfpass = (function(){
         //TODO merge keystores
 
         state.lastKeystoreTag = encryptedCurrentKeystore.tag;
-        chrome.storage.local.set({"keystores": {[state.userID]: encryptedKeystore}});
+        chromep.storage.local.set({"keystores": {[state.userID]: encryptedKeystore}});
         updateUserData("lastKeystoreTag", state.lastKeystoreTag);
 
         console.log("Got current keystore, sending merged keystore");
@@ -280,9 +282,8 @@ var selfpass = (function(){
     const encryptedKeystore =
           await cryptography.symmetricEncrypt(state.masterKey, state.keystore.serialize());
 
-    chrome.storage.local.set(
-      {"keystores": {[state.userID]: encryptedKeystore}},
-      function(){
+    chromep.storage.local.set(
+      {"keystores": {[state.userID]: encryptedKeystore}}).then(() => {
         console.log("Stored encrypted keystore (first time)");
       });
 
@@ -299,33 +300,33 @@ var selfpass = (function(){
     const providedKey = await cryptography.expandPassword(masterKey_, state.userID);
     console.log("Reading current keystore.");
 
-    chrome.storage.local.get("keystores", async function(result){
-      try {
-        const encryptedKeystore = result.keystores[state.userID];
+    const result = await chromep.storage.local.get("keystores");
 
-        const decryptedKeystore =
-                await cryptography.symmetricDecrypt(providedKey, encryptedKeystore);
-        const parsedKeystore = JSON.parse(decryptedKeystore);
+    try {
+      const encryptedKeystore = result.keystores[state.userID];
 
-        console.log("Used provided key to decrypt current keystore");
+      const decryptedKeystore =
+            await cryptography.symmetricDecrypt(providedKey, encryptedKeystore);
+      const parsedKeystore = JSON.parse(decryptedKeystore);
 
-        state.keystore = new Keystore(parsedKeystore);
-        state.masterKey = providedKey;
-        console.log("Getting updated keystore.");
-        getCurrentKeystore();
+      console.log("Used provided key to decrypt current keystore");
 
-        console.log("Finished logging in.");
-        if (onSuccess) {
-          onSuccess();
-        }
-      }catch (error) {
-        state.masterKey = null;
-        console.error("Error logging in:", error);
-        if (onError) {
-          onError(error);
-        }
+      state.keystore = new Keystore(parsedKeystore);
+      state.masterKey = providedKey;
+      console.log("Getting updated keystore.");
+      getCurrentKeystore();
+
+      console.log("Finished logging in.");
+      if (onSuccess) {
+        onSuccess();
       }
-    });
+    } catch (error) {
+      state.masterKey = null;
+      console.error("Error logging in:", error);
+      if (onError) {
+        onError(error);
+      }
+    }
   }
 
   async function generatePairingInfo(combinedAccessKey, username) {
@@ -411,33 +412,30 @@ var selfpass = (function(){
     const exportedServerPub =
             await window.crypto.subtle.exportKey("jwk", serverPubKey);
 
-    chrome.storage.local.get("users", function(users){
-      users[userID] = {
-        username: username,
-        deviceID: deviceID,
-        keys: {
-          publicKey: exportedUserPub,
-          privateKey: exportedUserPriv
-        }
-      };
+    const users = await chromep.storage.local.get("users");
+    users[userID] = {
+      username: username,
+      deviceID: deviceID,
+      keys: {
+        publicKey: exportedUserPub,
+        privateKey: exportedUserPriv
+      }
+    };
 
-      const data = {
-        connectionData : {
-          paired: true,
-          serverAddress: serverAddress,
-          serverPubKey: exportedServerPub,
-          lastUser: userID,
-          users: users
-        }
-      };
+    const data = {
+      connectionData : {
+        paired: true,
+        serverAddress: serverAddress,
+        serverPubKey: exportedServerPub,
+        lastUser: userID,
+        users: users
+      }
+    };
 
-      chrome.storage.local.set(data, function() {
-        if (!chrome.extension.lastError) {
-          console.log("Saved pairing parameters");
-        } else {
-          console.error("An error occurred while saving pairing parameters");
-        }
-      });
+    chromep.storage.local.set(data).then(() => {
+      console.log("Saved pairing parameters");
+    }).catch(() =>{
+      console.error("An error occurred while saving pairing parameters");
     });
   }
 
@@ -445,8 +443,8 @@ var selfpass = (function(){
     if (isLoggedIn()) {
       logout();
     }
-    chrome.storage.local.remove("connectionData");
-    chrome.storage.local.remove("keystores." + state.userID);
+    chromep.storage.local.remove("connectionData");
+    chromep.storage.local.remove("keystores." + state.userID);
     state.paired = false;
   }
 
@@ -456,69 +454,68 @@ var selfpass = (function(){
     console.log("Logged out.");
   }
 
-  function startup() {
-    chrome.storage.local.get("connectionData", async function(result){
-      const connectionData = result.connectionData;
+  async function startup() {
+    const result = await chromep.storage.local.get("connectionData");
+    const connectionData = result.connectionData;
 
-      if (typeof(connectionData) === "undefined") {
-        console.log("Unpaired.");
-        return;
-      }
+    if (typeof(connectionData) === "undefined") {
+      console.log("Unpaired.");
+      return;
+    }
 
-      const userID = connectionData.lastUser;
-      const user = connectionData.users[userID];
-      const username = user.username;
+    const userID = connectionData.lastUser;
+    const user = connectionData.users[userID];
+    const username = user.username;
 
-      state.deviceID = user.deviceID;
-      state.paired = connectionData.paired;
-      state.serverAddress = connectionData.serverAddress;
-      console.log("Loaded lastKeystoreTag:", user.lastKeystoreTag || null);
-      state.lastKeystoreTag = user.lastKeystoreTag || null;
+    state.deviceID = user.deviceID;
+    state.paired = connectionData.paired;
+    state.serverAddress = connectionData.serverAddress;
+    console.log("Loaded lastKeystoreTag:", user.lastKeystoreTag || null);
+    state.lastKeystoreTag = user.lastKeystoreTag || null;
 
-      const serverPubKey = await window.crypto.subtle.importKey(
-        "jwk",
-        connectionData.serverPubKey,
-        {
-          name: "ECDSA",
-          namedCurve: "P-384"
-        },
-        false,
-        ["verify"]
-      );
+    const serverPubKey = await window.crypto.subtle.importKey(
+      "jwk",
+      connectionData.serverPubKey,
+      {
+        name: "ECDSA",
+        namedCurve: "P-384"
+      },
+      false,
+      ["verify"]
+    );
 
-      // Currently unused
-      const clientPub = await window.crypto.subtle.importKey(
-        "jwk",
-        user.keys.publicKey,
-        {
-          name: "ECDSA",
-          namedCurve: "P-384"
-        },
-        false,
-        []
-      );
+    // Currently unused
+    const clientPub = await window.crypto.subtle.importKey(
+      "jwk",
+      user.keys.publicKey,
+      {
+        name: "ECDSA",
+        namedCurve: "P-384"
+      },
+      false,
+      []
+    );
 
-      const clientPriv = await window.crypto.subtle.importKey(
-        "jwk",
-        user.keys.privateKey,
-        {
-          name: "ECDSA",
-          namedCurve: "P-384"
-        },
-        false,
-        ["sign"]
-      );
+    const clientPriv = await window.crypto.subtle.importKey(
+      "jwk",
+      user.keys.privateKey,
+      {
+        name: "ECDSA",
+        namedCurve: "P-384"
+      },
+      false,
+      ["sign"]
+    );
 
-      state.serverPubKey = serverPubKey;
-      state.userKeys = {
-        privateKey: clientPriv,
-        publicKey: clientPub
-      };
+    state.serverPubKey = serverPubKey;
+    state.userKeys = {
+      privateKey: clientPriv,
+      publicKey: clientPub
+    };
 
-      console.log("Already paired.");
-      init(userID, username);
-      console.log("Loaded user `" + username + "` (" + userID + ")");
-    });
+    console.log("Already paired.");
+    init(userID, username);
+    console.log("Loaded user `" + username + "` (" + userID + ")");
   }
 
   startup();
