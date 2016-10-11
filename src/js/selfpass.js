@@ -201,11 +201,10 @@ var selfpass = (function(){
     return hexID;
   }
 
-  async function getCurrentKeystore(callback) {
+  async function getCurrentKeystore(skipUpdate) {
     const response = await sendEncryptedRequest("retrieve-keystore", {"current":state.lastKeystoreTag});
     if (response["response"] === "CURRENT") {
-      //TODO: execute callback?
-      return;
+      return [state.keystore, null];
     }
 
     const encryptedKeystore = JSON.parse(response["data"]);
@@ -214,7 +213,7 @@ var selfpass = (function(){
           await cryptography.symmetricDecrypt(state.masterKey, encryptedKeystore);
     const parsedKeystore = new Keystore(JSON.parse(decryptedKeystore));
 
-    if (typeof(callback) === "undefined") {
+    if (!skipUpdate) {
       state.keystore = parsedKeystore;
       state.lastKeystoreTag = encryptedKeystore.tag;
       updateUserData("lastKeystoreTag", state.lastKeystoreTag);
@@ -222,9 +221,9 @@ var selfpass = (function(){
         .then(() => {
           console.log("Updated keystore");
       });
-    } else {
-      callback(parsedKeystore, encryptedKeystore);
     }
+
+    return [parsedKeystore, encryptedKeystore];
   }
 
   function isLoggedIn() {
@@ -247,16 +246,16 @@ var selfpass = (function(){
 
     if (response.response === "OUTDATED") {
       console.log("Current keystore is outdated, getting current keystore");
-      getCurrentKeystore(function(currentKeystore, encryptedCurrentKeystore){
-        //TODO merge keystores
+      const [currentKeystore, encryptedCurrentKeystore] = await getCurrentKeystore(true);
 
-        state.lastKeystoreTag = encryptedCurrentKeystore.tag;
-        chromep.storage.local.set({"keystores": {[state.userID]: encryptedKeystore}});
-        updateUserData("lastKeystoreTag", state.lastKeystoreTag);
+      //TODO merge keystores
 
-        console.log("Got current keystore, sending merged keystore");
-        sendUpdatedKeystore(keystore);
-      });
+      state.lastKeystoreTag = encryptedCurrentKeystore.tag;
+      chromep.storage.local.set({"keystores": {[state.userID]: encryptedKeystore}});
+      updateUserData("lastKeystoreTag", state.lastKeystoreTag);
+
+      console.log("Got current keystore, sending merged keystore");
+      sendUpdatedKeystore(keystore);
     }
   }
 
