@@ -74,10 +74,12 @@ class CredentialListItem extends React.Component {
 
 class FillPopupBox extends React.Component {
   render() {
+    const self = this;
     return (
       <List>
-        {this.props.credentialList.map(function(credential, i){
-           return <CredentialListItem creds={credential} key={i}/>
+        {Object.keys(this.props.credentials).map(function(username, i){
+           const credentials = self.props.credentials[username];
+           return <CredentialListItem creds={credentials} key={i}/>
           })}
       </List>);
   }
@@ -86,10 +88,10 @@ class FillPopupBox extends React.Component {
 
 document.addEventListener("DOMContentLoaded", async function() {
   injectTapEventPlugin();
-  const credentialList = await chromep.runtime.sendMessage({message:"get-credentials"});
+  const credentials = await chromep.runtime.sendMessage({message:"get-credentials"});
   ReactDOM.render(
     <MuiThemeProvider>
-      <FillPopupBox credentialList={credentialList}/>
+      <FillPopupBox credentials={credentials}/>
     </MuiThemeProvider>,
     document.getElementById('fill-container')
   );

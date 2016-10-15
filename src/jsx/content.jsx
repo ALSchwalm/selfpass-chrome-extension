@@ -179,7 +179,7 @@ chrome.runtime.sendMessage({message:"login-status"}, function(response){
   }
 
   chrome.runtime.sendMessage({message:"get-credentials"}, function(response){
-    if (response.length > 0) {
+    if (Object.keys(response).length > 0) {
       function addFillInput(form) {
         const targetFillGroup = findTargetFillInputs(form);
         if (targetFillGroup.length > 0) {

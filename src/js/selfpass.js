@@ -450,7 +450,7 @@ var selfpass = (function(){
   chrome.runtime.onMessage.addListener(function(request, sender, sendResponse){
     console.log(request, sender);
     if (request.message === "get-credentials") {
-      sendResponse(state.keystore.credentialsForUrl(sender.tab.url));
+      sendResponse(state.keystore.currentCredentialsMatching(sender.tab.url));
     } else if (request.message === "get-keystore") {
       sendResponse(state.keystore);
     } else if (request.message === "login-status") {

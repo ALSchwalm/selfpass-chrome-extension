@@ -33,18 +33,43 @@ class Keystore {
     this.store[host][username].push(entry);
   }
 
-  credentialsForUrl(uri) {
-    const host = this.parseURI(uri).host;
-    if (typeof(this.store[host]) === "undefined") {
-      return [];
+  *credentials() {
+    for (const host in this.store) {
+      yield [host, this.store[host]];
     }
+  }
 
-    var currentCredentials = [];
-    for(const username in this.store[host]) {
-      const history = this.store[host][username];
-      currentCredentials.push(history[history.length-1]);
+  *currentCredentials() {
+    for (const host in this.store) {
+      const currentCredentials = {};
+      for (const username in this.store[host]) {
+        const history = this.store[host][username];
+        currentCredentials[username] = history[history.length-1];
+      }
+      yield [host, currentCredentials];
     }
-    return currentCredentials;
+  }
+
+  credentialsMatching(uri) {
+    const host = this.parseURI(uri).host;
+
+    if (typeof(this.store[host]) !== "undefined") {
+      return this.store[host];
+    }
+    return null;
+  }
+
+  currentCredentialsMatching(uri) {
+    const host = this.parseURI(uri).host;
+    if (typeof(this.store[host]) !== "undefined") {
+      const currentCredentials = {};
+      for (const username in this.store[host]) {
+        const history = this.store[host][username];
+        currentCredentials[username] = history[history.length-1];
+      }
+      return currentCredentials;
+    }
+    return null;
   }
 
   serialize() {
