@@ -4,6 +4,7 @@ import SuperagentPromise from "superagent-promise";
 import ChromePromise from "chrome-promise";
 
 import Keystore from "./keystore.js";
+import Connection from "./connection.js";
 import cryptography from "./cryptography.js";
 
 const agent = SuperagentPromise(superagent, Promise);
@@ -14,6 +15,7 @@ var selfpass = (function(){
     paired: false,
     username: null,
     userID: null,
+    connection: null,
     deviceID: null,
     userKeys: null,
     serverAddress: null,
@@ -34,104 +36,24 @@ var selfpass = (function(){
     chromep.storage.local.set(result);
   }
 
-  async function completeHello(tempPrivKey, response) {
-    const r = base64.toByteArray(response.signature.r);
-    const s = base64.toByteArray(response.signature.s);
-
-    const signature = new Uint8Array(r.length + s.length);
-    signature.set(r, 0);
-    signature.set(s, r.length);
-
-    const validSignature =
-        await cryptography.verifyECDSA(state.serverPubKey,
-                                       response.payload,
-                                       signature);
-    if (!validSignature) {
-      throw Error("Invalid signature");
-    }
-
-    const parsedResponse = JSON.parse(window.atob(response.payload));
-    const serverTempPubKey = await window.crypto.subtle.importKey(
-      "jwk",
-      parsedResponse.public_key,
-      {
-        name: "ECDH",
-        namedCurve: "P-384"
-      },
-      false,
-      []);
-
-    const tempSymmetricKey = await window.crypto.subtle.deriveKey(
-      {
-        name: "ECDH",
-        namedCurve: "P-384",
-        public: serverTempPubKey
-      },
-      tempPrivKey,
-      {
-        name: "AES-GCM",
-        length: 256
-      },
-      false,
-      ["encrypt", "decrypt"]
-    );
-
-    return [tempSymmetricKey, parsedResponse.session_id];
+  function isLoggedIn() {
+    return state.masterKey !== null;
   }
 
-  async function sendEncryptedRequest(method, requestData) {
-    const tempKeys = await cryptography.generateECDHKeys();
-    const tempPubKey = tempKeys.publicKey;
-    const tempPrivKey = tempKeys.privateKey;
 
-    const exportedPubKey = await window.crypto.subtle.exportKey("jwk", tempPubKey);
-    const pubKeyStr = window.btoa(JSON.stringify({
-      public_key: exportedPubKey
-    }));
-
-    const signature = await cryptography.signECDSA(state.userKeys.privateKey,
-                                                   pubKeyStr);
-    const helloKeyInfo = {
-      payload: pubKeyStr,
-      signature: signature,
-      user_id: state.userID,
-      device_id: state.deviceID
-    };
-
-    // Send our ephemeral public key to the server
-    const helloResponse = await agent.post(state.serverAddress + "/hello")
-          .send(helloKeyInfo)
-          .set('Accept', 'application/json');
-
-    // Do the ECDH and get the ephemeral symmetric key
-    const [tempSharedKey, session_id] =
-          await completeHello(tempPrivKey, helloResponse.body);
-
-
-    const plaintextPayload = {
-      "request": method,
-      "data": requestData
-    };
-    const payload = await cryptography.symmetricEncrypt(tempSharedKey,
-                                                        JSON.stringify(plaintextPayload));
-    payload["session_id"] = session_id;
-
-    // Send the actual payload (encrypted with the ephemeral key)
-    const finalResponse = await agent.post(state.serverAddress + "/request")
-          .send(payload)
-          .set('Accept', 'application/json');
-
-    const decryptedResponse =
-          await cryptography.symmetricDecrypt(tempSharedKey, finalResponse.body);
-    const decodedResponse = JSON.parse(decryptedResponse);
-
-    console.log(decodedResponse);
-    return decodedResponse;
+  function isPaired() {
+    return !!state.paired;
   }
 
-  async function getCurrentKeystore(skipUpdate) {
-    const response = await sendEncryptedRequest("retrieve-keystore", {"current":state.lastKeystoreTag});
-    if (response["response"] === "CURRENT") {
+  function init(userID_, username_) {
+    state.userID = userID_;
+    state.username = username_;
+  }
+
+  async function getCurrentKeystore(connection, skipUpdate) {
+    const response = await connection.sendEncryptedRequest("retrieve-keystore",
+                                                           {"current":state.lastKeystoreTag});
+    if (response["response"] === "CURRENT" || response["data"] === null) {
       return [state.keystore, null];
     }
 
@@ -142,7 +64,7 @@ var selfpass = (function(){
     const parsedKeystore = new Keystore(JSON.parse(decryptedKeystore));
 
     if (!skipUpdate) {
-      state.keystore = parsedKeystore;
+      state.keystore.merge(parsedKeystore);
       state.lastKeystoreTag = encryptedKeystore.tag;
       updateUserData("lastKeystoreTag", state.lastKeystoreTag);
       chromep.storage.local.set({"keystores": {[state.userID]: encryptedKeystore}})
@@ -154,11 +76,7 @@ var selfpass = (function(){
     return [parsedKeystore, encryptedKeystore];
   }
 
-  function isLoggedIn() {
-    return state.masterKey !== null;
-  }
-
-  async function sendUpdatedKeystore(keystore) {
+  async function sendUpdatedKeystore(connection, keystore) {
     if (!isLoggedIn()) {
       throw Error("Cannot sendUpdatedKeystore before logging in.");
     }
@@ -170,33 +88,27 @@ var selfpass = (function(){
       "user_id": state.userID,
       "based_on": state.lastKeystoreTag
     };
-    const response = await sendEncryptedRequest("update-keystore", JSON.stringify(data));
+    const response = await connection.sendEncryptedRequest("update-keystore",
+                                                           JSON.stringify(data));
 
     if (response.response === "OUTDATED") {
       console.log("Current keystore is outdated, getting current keystore");
-      const [currentKeystore, encryptedCurrentKeystore] = await getCurrentKeystore(true);
-
-      //TODO merge keystores
+      const [currentKeystore, encryptedCurrentKeystore] =
+            await getCurrentKeystore(connection, true);
 
       state.lastKeystoreTag = encryptedCurrentKeystore.tag;
       chromep.storage.local.set({"keystores": {[state.userID]: encryptedKeystore}});
       updateUserData("lastKeystoreTag", state.lastKeystoreTag);
 
+      // Merge the server keystore with our keystore
+      keystore.merge(currentKeystore);
+
       console.log("Got current keystore, sending merged keystore");
-      sendUpdatedKeystore(keystore);
+      sendUpdatedKeystore(connection, keystore);
     }
   }
 
-  function isPaired() {
-    return !!state.paired;
-  }
-
-  function init(userID_, username_) {
-    state.userID = userID_;
-    state.username = username_;
-  }
-
-  async function loginFirstTime(masterKey_) {
+  async function loginFirstTime(connection, masterKey_) {
     if (!isPaired()) {
       throw Error("Cannot login before pairing.");
     }
@@ -204,7 +116,6 @@ var selfpass = (function(){
     const masterKey = await cryptography.expandPassword(masterKey_,
                                                         state.userID);
     state.masterKey = masterKey;
-    console.log("Finished First time log in.");
 
     const encryptedKeystore =
           await cryptography.symmetricEncrypt(state.masterKey, state.keystore.serialize());
@@ -214,12 +125,14 @@ var selfpass = (function(){
         console.log("Stored encrypted keystore (first time)");
       });
 
-    // This should be an empty object. Send it so the server
-    // has something stored for the new user.
-    sendUpdatedKeystore(state.keystore);
+    // This may be the first time this user has ever logged in, so go
+    // ahead and try to send the empty keystore
+    sendUpdatedKeystore(connection, state.keystore);
+    console.log("Finished First time log in.");
+    return true;
   }
 
-  async function login(masterKey_, onSuccess, onError) {
+  async function login(masterKey_) {
     if (!isPaired()) {
       throw Error("Cannot login before pairing.");
     }
@@ -228,6 +141,11 @@ var selfpass = (function(){
     console.log("Reading current keystore.");
 
     const result = await chromep.storage.local.get("keystores");
+
+    if (typeof(result.keystores) === "undefined") {
+      console.log("No keystore. First time login.");
+      return loginFirstTime(state.connection, masterKey_);
+    }
 
     try {
       const encryptedKeystore = result.keystores[state.userID];
@@ -241,18 +159,14 @@ var selfpass = (function(){
       state.keystore = new Keystore(parsedKeystore);
       state.masterKey = providedKey;
       console.log("Getting updated keystore.");
-      getCurrentKeystore();
+      getCurrentKeystore(state.connection);
 
       console.log("Finished logging in.");
-      if (onSuccess) {
-        onSuccess();
-      }
+      return true;
     } catch (error) {
       state.masterKey = null;
       console.error("Error logging in:", error);
-      if (onError) {
-        onError(error);
-      }
+      return false;
     }
   }
 
@@ -309,25 +223,18 @@ var selfpass = (function(){
       true,
       ["verify"]);
 
-    state.serverPubKey = serverPubKey;
-    state.deviceID = deviceID;
-    state.serverAddress = remoteServerLocation;
-    state.paired = true;
-
-    state.userKeys = {
+    const userKeys = {
       publicKey: clientKeys.publicKey,
       privateKey: clientKeys.privateKey
     };
 
-    savePairInfo(remoteServerLocation, username,
-                 userID, deviceID, state.userKeys,
-                 state.serverPubKey).then(() => {
-                   state.paired = true;
-                   init(userID, username);
-
-                   console.log("Pairing complete");
-                   loginFirstTime(masterKey);
-                 });
+    await savePairInfo(remoteServerLocation, username,
+                       userID, deviceID, userKeys,
+                       serverPubKey);
+    state.paired = true;
+    console.log("Pairing complete");
+    await startup();
+    login(masterKey);
   }
 
   async function savePairInfo(serverAddress, username, userID, deviceID,
@@ -359,11 +266,8 @@ var selfpass = (function(){
       }
     };
 
-    chromep.storage.local.set(data).then(() => {
-      console.log("Saved pairing parameters");
-    }).catch(() =>{
-      console.error("An error occurred while saving pairing parameters");
-    });
+    await chromep.storage.local.set(data);
+    console.log("Saved pairing parameters");
   }
 
   function unpair() {
@@ -443,6 +347,12 @@ var selfpass = (function(){
     console.log("Already paired.");
     init(userID, username);
     console.log("Loaded user `" + username + "` (" + userID + ")");
+
+    state.connection = new Connection(state.serverAddress,
+                                      state.userID,
+                                      state.deviceID,
+                                      state.userKeys.privateKey,
+                                      state.serverPubKey);
   }
 
   startup();
@@ -462,7 +372,7 @@ var selfpass = (function(){
                                     request.username,
                                     request.password,
                                     request.favicon);
-      sendUpdatedKeystore(state.keystore);
+      sendUpdatedKeystore(state.connection, state.keystore);
     } else if (request.message === "fill-credentials"         ||
                request.message === "fill-generated-password"  ||
                request.message === "close-fill-popup"         ||
