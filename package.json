@@ -7,6 +7,7 @@
     "babel-preset-react": "^6.11.1",
     "babelify": "^7.3.0",
     "browserify": "^13.0.0",
+    "mocha": "^3.1.2",
     "react-develop": "^0.1.5",
     "watchify": "^0.6.1"
   },
@@ -29,7 +30,8 @@
   },
   "scripts": {
     "watch": "./scripts/watch.sh",
-    "build": "./scripts/build.sh"
+    "build": "./scripts/build.sh",
+    "test": "mocha --compilers js:babel-register"
   },
   "keywords": [
     "chrome",
@@ -51,6 +53,7 @@
     "react-dom": "^15.3.0",
     "react-tap-event-plugin": "^1.0.0",
     "superagent": "^2.3.0",
-    "superagent-promise": "^1.1.0"
+    "superagent-promise": "^1.1.0",
+    "url-parse": "^1.1.7"
   }
 }
