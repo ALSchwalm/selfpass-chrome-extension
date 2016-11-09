@@ -2,15 +2,15 @@
 import assert from "assert";
 import Keystore from "../src/js/keystore.js";
 
-describe('Keystore', () => {
-  describe('#addCredentials', ()=> {
+describe('Keystore', function(){
+  describe('#addCredentials', function() {
     let keystore;
 
-    beforeEach(() => {
+    beforeEach(function(){
       keystore = new Keystore();
     });
 
-    it('should create missing host and username entries', () => {
+    it('should create missing host and username entries', function(){
       const url = "http://www.google.com";
       const host = "www.google.com";
       const username = "username";
@@ -22,7 +22,7 @@ describe('Keystore', () => {
       assert(typeof(keystore.store[host][username]) !== "undefined");
     });
 
-    it('should add a new entry with the given username and password', () => {
+    it('should add a new entry with the given username and password', function(){
       const url = "http://www.google.com";
       const host = "www.google.com";
       const username = "username";
@@ -38,7 +38,7 @@ describe('Keystore', () => {
       assert(entry.password === password);
     });
 
-    it('should add a new entry with the current time (in seconds since epoch)', () => {
+    it('should add a new entry with the current time (in seconds since epoch)', function(){
       const url = "http://www.google.com";
       const host = "www.google.com";
       const username = "username";
@@ -53,18 +53,18 @@ describe('Keystore', () => {
     });
   });
 
-  describe('#credentials', ()=> {
+  describe('#credentials', function(){
     let keystore;
 
-    beforeEach(() => {
+    beforeEach(function(){
       keystore = new Keystore();
     });
 
-    it('should start out empty', () => {
+    it('should start out empty', function(){
       assert([...keystore.credentials()].length === 0);
     });
 
-    it('should yield pairs of (host, credential-history)', () => {
+    it('should yield pairs of (host, credential-history)', function(){
       const url = "http://www.google.com";
       const host = "www.google.com";
       const username = "username";
@@ -88,18 +88,18 @@ describe('Keystore', () => {
     });
   });
 
-  describe('#currentCredentials', ()=> {
+  describe('#currentCredentials', function(){
     let keystore;
 
-    beforeEach(() => {
+    beforeEach(function(){
       keystore = new Keystore();
     });
 
-    it('should start out empty', () => {
+    it('should start out empty', function(){
       assert([...keystore.currentCredentials()].length === 0);
     });
 
-    it('should yield pairs of (host, current-credential)', () => {
+    it('should yield pairs of (host, current-credential)', function(){
       const url = "http://www.google.com";
       const host = "www.google.com";
       const username = "username";
@@ -122,24 +122,24 @@ describe('Keystore', () => {
     });
   });
 
-  describe('#credentialsMatching', ()=> {
+  describe('#credentialsMatching', function(){
     let keystore;
 
-    beforeEach(() => {
+    beforeEach(function(){
       keystore = new Keystore();
     });
 
-    it('should return null on invalid URL', () => {
+    it('should return null on invalid URL', function(){
       const credentials = keystore.credentialsMatching("foo");
       assert(credentials === null);
     });
 
-    it('should return null when no hostname matches', () => {
+    it('should return null when no hostname matches', function(){
       const credentials = keystore.credentialsMatching("www.example.com");
       assert(credentials === null);
     });
 
-    it('should return a credential history when hostname matches', () => {
+    it('should return a credential history when hostname matches', function(){
       const url = "http://www.google.com";
       const username = "username";
       const password = "password";
@@ -154,24 +154,24 @@ describe('Keystore', () => {
     });
   });
 
-  describe('#currentCredentialsMatching', ()=> {
+  describe('#currentCredentialsMatching', function(){
     let keystore;
 
-    beforeEach(() => {
+    beforeEach(function(){
       keystore = new Keystore();
     });
 
-    it('should return null on invalid URL', () => {
+    it('should return null on invalid URL', function(){
       const credentials = keystore.currentCredentialsMatching("foo");
       assert(credentials === null);
     });
 
-    it('should return null when no hostname matches', () => {
+    it('should return null when no hostname matches', function(){
       const credentials = keystore.currentCredentialsMatching("www.example.com");
       assert(credentials === null);
     });
 
-    it('should return the current credentials when hostname matches', () => {
+    it('should return the current credentials when hostname matches', function(){
       const url = "http://www.google.com";
       const username = "username";
       const password = "password";
@@ -185,16 +185,16 @@ describe('Keystore', () => {
     });
   });
 
-  describe('#merge', ()=> {
+  describe('#merge', function(){
     let current;
     let alternate;
 
-    beforeEach(() => {
+    beforeEach(function(){
       current = new Keystore();
       alternate = new Keystore();
     });
 
-    it('should have no effect when alternate keystore is empty', () => {
+    it('should have no effect when alternate keystore is empty', function(){
       const url = "http://www.google.com";
       const username = "username";
       const password = "password";
@@ -205,7 +205,7 @@ describe('Keystore', () => {
       assert([...current.credentials()].length === 1);
     });
 
-    it('should add hostnames from alternate that are missing from current', () => {
+    it('should add hostnames from alternate that are missing from current', function(){
       const url = "http://www.google.com";
       const url2 = "http://www.example.com";
       const username = "username";
@@ -218,7 +218,7 @@ describe('Keystore', () => {
       assert([...current.credentials()].length === 2);
     });
 
-    it('should remove duplicate entries', () => {
+    it('should remove duplicate entries', function(){
       const url = "http://www.google.com";
       const username = "username";
       const password = "password";
@@ -232,7 +232,7 @@ describe('Keystore', () => {
       assert(mergedCredentials[0][1][username].length === 1);
     });
 
-    it('should keep entries for the same user but different passwords', () => {
+    it('should keep entries for the same user but different passwords', function(){
       const url = "http://www.google.com";
       const username = "username";
       const password = "password";
@@ -247,7 +247,7 @@ describe('Keystore', () => {
       assert(mergedCredentials[0][1][username].length === 2);
     });
 
-    it('should order merged user histories by time', () => {
+    it('should order merged user histories by time', function(){
       const url = "http://www.google.com";
       const username = "username";
       const password = "password";

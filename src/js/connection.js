@@ -15,17 +15,10 @@ class Connection {
   }
 
   async _completeHello(tempPrivKey, response) {
-    const r = base64.toByteArray(response.signature.r);
-    const s = base64.toByteArray(response.signature.s);
-
-    const signature = new Uint8Array(r.length + s.length);
-    signature.set(r, 0);
-    signature.set(s, r.length);
-
     const validSignature =
         await cryptography.verifyECDSA(this.serverPubKey,
                                        response.payload,
-                                       signature);
+                                       response.signature);
     if (!validSignature) {
       throw Error("Invalid signature");
     }

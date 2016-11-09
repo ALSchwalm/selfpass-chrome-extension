@@ -1,6 +1,14 @@
 import base64 from "base64-js";
 
 const cryptography = {
+  _crypto() {
+    if (typeof(window) === "undefined") {
+      return require('crypto');
+    } else {
+      return window.crypto;
+    }
+  },
+
   async symmetricEncrypt(key, plaintext){
     const iv = new Uint8Array(12);
     window.crypto.getRandomValues(iv);
@@ -108,6 +116,13 @@ const cryptography = {
   },
 
   verifyECDSA(publicKey, message, signature) {
+    const r = base64.toByteArray(signature.r);
+    const s = base64.toByteArray(signature.s);
+
+    const rawsignature = new Uint8Array(r.length + s.length);
+    rawsignature.set(r, 0);
+    rawsignature.set(s, r.length);
+
     const buffer = new window.TextEncoder("utf-8").encode(message);
     return window.crypto.subtle.verify(
       {
@@ -115,7 +130,7 @@ const cryptography = {
         hash: {name: "SHA-256"}
       },
       publicKey,
-      signature,
+      rawsignature,
       buffer
     );
   },
