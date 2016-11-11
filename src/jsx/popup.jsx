@@ -19,10 +19,23 @@ import Settings from 'material-ui/svg-icons/action/settings';
 
 import LoggedOutView from './logged-out-view.jsx';
 import UnpairedView from './unpaired-view.jsx';
+import GeneratePasswordMenu from './generate-password-menu.jsx';
 
 const selfpass = () => chrome.extension.getBackgroundPage().selfpass;
 
 class SelfPassView extends React.Component {
+  constructor(...args) {
+    super(...args);
+
+    this.state = {
+      view: null
+    };
+
+    this.onClickGeneratePassword = ()=>{
+      this.setState({"view": <GeneratePasswordMenu />});
+    }
+  }
+
   logout() {
     selfpass().logout();
   }
@@ -37,6 +50,10 @@ class SelfPassView extends React.Component {
       return <UnpairedView />;
     } else if (!selfpass().isLoggedIn()) {
       return <LoggedOutView />;
+    }
+
+    if (this.state.view !== null) {
+      return this.state.view;
     }
 
     let matchingSitesElem = <div />;
@@ -59,7 +76,9 @@ class SelfPassView extends React.Component {
         <ListItem primaryText="Key Store"
                   onClick={this.onClickKeystore}
                   leftIcon={<VPNKey />} />
-        <ListItem primaryText="Generate Password" leftIcon={<Cached />} />
+        <ListItem primaryText="Generate Password"
+                  onClick={this.onClickGeneratePassword}
+                  leftIcon={<Cached />} />
         <ListItem primaryText="Settings" leftIcon={<Settings />} />
         {matchingSitesElem}
         <Divider/>

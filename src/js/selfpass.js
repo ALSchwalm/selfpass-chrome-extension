@@ -380,7 +380,13 @@ var selfpass = (function(){
                request.message === "close-generate-popup") {
       // proxy fill-credentials/close requests for the iframe back to the
       // originating tab
-      chrome.tabs.sendMessage(sender.tab.id, request);
+      if (sender.tab) {
+        chrome.tabs.sendMessage(sender.tab.id, request);
+      } else {
+        chrome.tabs.query({currentWindow: true, active : true}, (tabs) => {
+          chrome.tabs.sendMessage(tabs[0].id, request);
+        });
+      }
     }
   });
 
