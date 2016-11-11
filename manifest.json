@@ -29,6 +29,6 @@
         "build/html/generate-popup.html",
         "build/js/generate-popup-bundle.js"
     ],
-    "permissions": ["storage"],
+    "permissions": ["storage", "tabs"],
     "short_name": "SelfPass"
 }
