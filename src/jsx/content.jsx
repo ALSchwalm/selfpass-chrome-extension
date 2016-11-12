@@ -41,7 +41,7 @@ function openPopup(elem, id, url, css) {
   var offset = elem.offset();
   frame.css({
     top: (offset.top + elem.height() + 10) + "px",
-    left: offset.left + "px",
+    left: offset.left + elem.width() - 250 + "px",
   });
 
   if (typeof(css) !== "undefined") {
