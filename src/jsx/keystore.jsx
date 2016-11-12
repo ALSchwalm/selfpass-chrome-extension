@@ -30,9 +30,11 @@ class SiteGrid extends React.Component {
       });
     });
 
+    let numColumns = (window.innerWidth > 1000) ? 4 : 3;
+
     return (
       <GridList cellHeight={100}
-                cols={4}>
+                cols={numColumns}>
         {currentCredentials.map((item, index) => {
            var img = null;
            if (item.favicon) {
@@ -180,4 +182,8 @@ document.addEventListener("DOMContentLoaded", function() {
   setInterval(function() {
     renderApp();
   }, 500);
+
+  window.onresize = function(event) {
+    renderApp();
+  };
 });
