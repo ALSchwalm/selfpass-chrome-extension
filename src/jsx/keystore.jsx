@@ -35,7 +35,7 @@ class SiteGrid extends React.Component {
 
            const users = Object.keys(credentialItems[host].users)
                                .reduce((combined, entry) => {
-             return combined + ", " + entry.username
+             return combined + ", " + entry
            });
 
            return <GridTile
