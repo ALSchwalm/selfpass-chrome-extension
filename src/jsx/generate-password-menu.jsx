@@ -14,6 +14,7 @@ import Toggle from 'material-ui/Toggle';
 import Subheader from 'material-ui/Subheader';
 import Checkbox from 'material-ui/Checkbox';
 import Refresh from 'material-ui/svg-icons/navigation/refresh';
+import CheckCircle from 'material-ui/svg-icons/action/check-circle';
 
 class GeneratePasswordMenu extends React.Component {
   constructor(...args) {
@@ -26,7 +27,8 @@ class GeneratePasswordMenu extends React.Component {
       useSpecialCharacters: false,
       passwordLength: 12,
       password: "",
-      username: decodeURIComponent(window.location.search.split("=")[1] || "")
+      username: decodeURIComponent(window.location.search.split("=")[1] || ""),
+      saved: false
     }
 
     this.generatePassword = () => {
@@ -108,6 +110,10 @@ class GeneratePasswordMenu extends React.Component {
     }
 
     this.onSave = () => {
+      if (this.state.saved) {
+        return;
+      }
+
       console.log("Sending fill message", this.state.username);
 
       chrome.runtime.sendMessage({
@@ -121,6 +127,8 @@ class GeneratePasswordMenu extends React.Component {
         password: this.state.password,
         username: this.state.username
       });
+
+      this.setState({"saved": true});
     }
   }
 
@@ -152,6 +160,21 @@ class GeneratePasswordMenu extends React.Component {
       advancedOptions = <div />
     }
 
+    const savedButtonStyle = {width: "48%",
+                              position: "relative",
+                              right: "-10px"};
+    let saveButton;
+    if (this.state.saved) {
+      saveButton = <RaisedButton icon={<CheckCircle />}
+                                 style={savedButtonStyle}
+                                 primary={true} />;
+    } else {
+      saveButton = <RaisedButton label="Save"
+                                 onClick={this.onSave}
+                                 style={savedButtonStyle}
+                                 primary={true} />;
+    }
+
     return (
       <div>
         <TextField
@@ -168,14 +191,7 @@ class GeneratePasswordMenu extends React.Component {
                         onClick={this.updatePassword}
                         style={{width: "48%"}}
                         primary={true} />
-          <RaisedButton label="Save"
-                        /* TODO make this less bad */
-                        onClick={this.onSave}
-                        style={{width: "48%",
-                                position: "relative",
-                                bottom: "-1px",
-                                right: "-10px"}}
-                        primary={true} />
+          {saveButton}
         </div>
       </div>)
   }

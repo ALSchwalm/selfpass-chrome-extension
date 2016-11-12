@@ -15,6 +15,7 @@ import VPNKey from 'material-ui/svg-icons/communication/vpn-key';
 import Cached from 'material-ui/svg-icons/action/cached';
 import Exit from 'material-ui/svg-icons/action/exit-to-app';
 import NavigationClose from 'material-ui/svg-icons/navigation/close';
+import NavigationBack from 'material-ui/svg-icons/navigation/arrow-back';
 import Settings from 'material-ui/svg-icons/action/settings';
 
 import LoggedOutView from './logged-out-view.jsx';
@@ -31,29 +32,58 @@ class SelfPassView extends React.Component {
       view: null
     };
 
-    this.onClickGeneratePassword = ()=>{
+    this.onClickGeneratePassword = ()=> {
       this.setState({"view": <GeneratePasswordMenu />});
     }
-  }
 
-  logout() {
-    selfpass().logout();
-  }
+    this.onClickBack = () => {
+      this.setState({"view": null});
+    }
 
-  onClickKeystore() {
-    const url = chrome.extension.getURL("build/html/keystore.html");
-    chrome.tabs.create({url: url});
+    this.onClickLogout = () => {
+      selfpass().logout();
+    }
+
+    this.onClickKeystore = () => {
+      const url = chrome.extension.getURL("build/html/keystore.html");
+      chrome.tabs.create({url: url});
+    }
+
+    this.wrapInMenu = (elem) => {
+      let backButton;
+      if (selfpass().isLoggedIn() && this.state.view !== null) {
+        backButton = (
+          <IconButton onClick={this.onClickBack}>
+            <NavigationBack />
+          </IconButton>
+        );
+      } else {
+        backButton = <IconButton />;
+      }
+
+      return (
+        <div>
+          <AppBar title="SelfPass"
+              style={{height:"35px"}}
+              iconElementLeft={backButton}
+              iconElementRight={
+                <IconButton onClick={e=>window.close()}><NavigationClose /></IconButton>
+              }/>
+        {elem}
+        </div>
+      );
+    };
   }
 
   render() {
     if (!selfpass().isPaired()) {
-      return <UnpairedView />;
+      return this.wrapInMenu(<UnpairedView />);
     } else if (!selfpass().isLoggedIn()) {
-      return <LoggedOutView />;
+      return this.wrapInMenu(<LoggedOutView />);
     }
 
     if (this.state.view !== null) {
-      return this.state.view;
+      return this.wrapInMenu(this.state.view);
     }
 
     let matchingSitesElem = <div />;
@@ -71,7 +101,7 @@ class SelfPassView extends React.Component {
         />;
     }
 
-    return (
+    return this.wrapInMenu(
       <List>
         <ListItem primaryText="Key Store"
                   onClick={this.onClickKeystore}
@@ -82,7 +112,7 @@ class SelfPassView extends React.Component {
         <ListItem primaryText="Settings" leftIcon={<Settings />} />
         {matchingSitesElem}
         <Divider/>
-        <ListItem onClick={this.logout} primaryText="Logout" leftIcon={<Exit />} />
+        <ListItem onClick={this.onClickLogout} primaryText="Logout" leftIcon={<Exit />} />
     </List>);
   }
 }
@@ -95,13 +125,7 @@ const theme = getMuiTheme({
 
 const App = (url) => (
   <MuiThemeProvider muiTheme={theme}>
-    <div>
-      <AppBar title="SelfPass"
-              showMenuIconButton={false}
-              style={{height:"35px"}}
-              iconElementRight={<IconButton onClick={e=>window.close()}><NavigationClose /></IconButton>}/>
       <SelfPassView URL={url}/>
-    </div>
   </MuiThemeProvider>
 );
 
