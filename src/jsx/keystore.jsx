@@ -20,32 +20,29 @@ const selfpass = () => chrome.extension.getBackgroundPage().selfpass;
 class SiteGrid extends React.Component {
   render() {
     const credentialItems = this.props.credentialItems;
-    const currentCredentials = [];
-
-    Object.keys(credentialItems).map((host) => {
-      Object.keys(credentialItems[host]).map((username) => {
-        const credentialHistory = credentialItems[host][username];
-
-        currentCredentials.push(credentialHistory[credentialHistory.length-1])
-      });
-    });
 
     let numColumns = (window.innerWidth > 1000) ? 4 : 3;
 
     return (
       <GridList cellHeight={100}
                 cols={numColumns}>
-        {currentCredentials.map((item, index) => {
+        {Object.keys(credentialItems).map((host, index) => {
            var img = null;
-           if (item.favicon) {
+           if (credentialItems[host].favicon) {
              img = <img style={{width: "24px", height:"24px", paddingRight: "10px"}}
-                        src={item.favicon} />;
+                        src={credentialItems[host].favicon} />;
            }
+
+           const users = Object.keys(credentialItems[host].users)
+                               .reduce((combined, entry) => {
+             return combined + ", " + entry.username
+           });
+
            return <GridTile
                key={index}
-               title={item.host}
+               title={host}
                actionIcon={img}
-               subtitle={item.username} />
+               subtitle={users} />
          })}
       </GridList>
     )
@@ -70,9 +67,12 @@ class KeystoreView extends React.Component {
   filterCredentials(s) {
     var credentials = {};
 
-    for (const host in this.props.keystore.store) {
+    for (const host in this.props.keystore.store.hosts) {
       if (host.includes(s)) {
-        credentials[host] = this.props.keystore.store[host];
+        credentials[host] = {
+          users: this.props.keystore.store.hosts[host],
+          favicon: this.props.keystore.store.favicons[host]
+        };
       }
     }
 

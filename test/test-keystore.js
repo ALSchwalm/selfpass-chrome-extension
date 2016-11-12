@@ -18,8 +18,8 @@ describe('Keystore', function(){
       const favicon = "";
 
       keystore.addCredentials(url, username, password, favicon);
-      assert(typeof(keystore.store[host]) !== "undefined");
-      assert(typeof(keystore.store[host][username]) !== "undefined");
+      assert(typeof(keystore.store.hosts[host]) !== "undefined");
+      assert(typeof(keystore.store.hosts[host][username]) !== "undefined");
     });
 
     it('should add a new entry with the given username and password', function(){
@@ -30,9 +30,9 @@ describe('Keystore', function(){
       const favicon = "";
 
       keystore.addCredentials(url, username, password, favicon);
-      assert(keystore.store[host][username].length === 1);
+      assert(keystore.store.hosts[host][username].length === 1);
 
-      const entry = keystore.store[host][username][0];
+      const entry = keystore.store.hosts[host][username][0];
 
       assert(entry.username === username);
       assert(entry.password === password);
@@ -47,7 +47,7 @@ describe('Keystore', function(){
 
       const currentTime = Math.floor(new Date().getTime() / 1000);
       keystore.addCredentials(url, username, password, favicon);
-      const entry = keystore.store[host][username][0];
+      const entry = keystore.store.hosts[host][username][0];
 
       assert(entry.time === currentTime);
     });
@@ -255,7 +255,7 @@ describe('Keystore', function(){
       const favicon = "";
       current.addCredentials(url, username, password, favicon);
       alternate.addCredentials(url, username, password2, favicon);
-      alternate.store["www.google.com"][username][0].time += 100;
+      alternate.store.hosts["www.google.com"][username][0].time += 100;
 
       current.merge(alternate);
       const mergedCredentials = [...current.credentials()];
@@ -265,6 +265,23 @@ describe('Keystore', function(){
       assert(userHistory.length === 2);
 
       assert(userHistory[0].time < userHistory[1].time);
+    });
+
+    it('should use the favicons from the `other` keystore', function(){
+      const url = "http://www.google.com";
+      const host = "www.google.com";
+      const username = "username";
+      const password = "password";
+      const favicon1 = "contents";
+      const favicon2 = "other";
+
+      current.addCredentials(url, username, password, favicon1);
+      alternate.addCredentials(url, username, password, favicon2);
+
+      current.merge(alternate);
+      assert(Object.keys(current.store.favicons).length === 1);
+
+      assert(current.store.favicons[host] === favicon2);
     });
   });
 });

@@ -3,7 +3,10 @@ import URL from "url-parse";
 class Keystore {
   constructor(store) {
     if (typeof(store) === "undefined") {
-      this.store = {};
+      this.store = {
+        hosts: {},
+        favicons: {}
+      };
     } else {
       this.store = store;
     }
@@ -16,30 +19,33 @@ class Keystore {
       url: url,
       username: username,
       password: password,
-      favicon: favicon,
       time: Math.floor(new Date().getTime() / 1000)
     };
 
-    if (typeof(this.store[host]) === "undefined") {
-      this.store[host] = {};
+    if (typeof(this.store.hosts[host]) === "undefined") {
+      this.store.hosts[host] = {};
     }
-    if (typeof(this.store[host][username] === "undefined")) {
-      this.store[host][username] = [];
+    if (typeof(this.store.hosts[host][username] === "undefined")) {
+      this.store.hosts[host][username] = [];
     }
-    this.store[host][username].push(entry);
+    this.store.hosts[host][username].push(entry);
+
+    if (typeof(this.store.favicons[host] === "undefined")) {
+      this.store.favicons[host] = favicon;
+    }
   }
 
   *credentials() {
-    for (const host in this.store) {
-      yield [host, this.store[host]];
+    for (const host in this.store.hosts) {
+      yield [host, this.store.hosts[host]];
     }
   }
 
   *currentCredentials() {
-    for (const host in this.store) {
+    for (const host in this.store.hosts) {
       const currentCredentials = {};
-      for (const username in this.store[host]) {
-        const history = this.store[host][username];
+      for (const username in this.store.hosts[host]) {
+        const history = this.store.hosts[host][username];
         currentCredentials[username] = history[history.length-1];
       }
       yield [host, currentCredentials];
@@ -49,18 +55,18 @@ class Keystore {
   credentialsMatching(url) {
     const host = new URL(url).host;
 
-    if (typeof(this.store[host]) !== "undefined") {
-      return this.store[host];
+    if (typeof(this.store.hosts[host]) !== "undefined") {
+      return this.store.hosts[host];
     }
     return null;
   }
 
   currentCredentialsMatching(url) {
     const host = new URL(url).host;
-    if (typeof(this.store[host]) !== "undefined") {
+    if (typeof(this.store.hosts[host]) !== "undefined") {
       const currentCredentials = {};
-      for (const username in this.store[host]) {
-        const history = this.store[host][username];
+      for (const username in this.store.hosts[host]) {
+        const history = this.store.hosts[host][username];
         currentCredentials[username] = history[history.length-1];
       }
       return currentCredentials;
@@ -76,7 +82,7 @@ class Keystore {
     const host = new URL(url).host;
 
     // This should be removed after the next merge
-    this.store[host] = null;
+    this.store.hosts[host] = null;
   }
 
   _mergeUserHistory(currentHistory, alternateHistory) {
@@ -113,22 +119,28 @@ class Keystore {
   }
 
   merge(otherKeystore) {
-    for (const host in otherKeystore.store) {
-      if (typeof(this.store[host]) === "undefined") {
-        this.store[host] = otherKeystore.store[host];
+    for (const host in otherKeystore.store.hosts) {
+      if (typeof(this.store.hosts[host]) === "undefined") {
+        this.store.hosts[host] = otherKeystore.store.hosts[host];
         continue;
       }
 
-      for (const username in otherKeystore.store[host]) {
-        if (typeof(this.store[host][username]) === "undefined") {
-          this.store[host][username] = otherKeystore[host][username];
+      for (const username in otherKeystore.store.hosts[host]) {
+        if (typeof(this.store.hosts[host][username]) === "undefined") {
+          this.store.hosts[host][username] = otherKeystore.hosts[host][username];
           continue;
         }
 
-        const history = this.store[host][username];
-        const alternateHistory = otherKeystore.store[host][username];
-        this.store[host][username] = this._mergeUserHistory(history, alternateHistory);
+        const history = this.store.hosts[host][username];
+        const alternateHistory = otherKeystore.store.hosts[host][username];
+        this.store.hosts[host][username] = this._mergeUserHistory(history, alternateHistory);
       }
+    }
+
+    // Always use the favicons from the other keystore (they may be
+    // more up-to-date)
+    for (const host in otherKeystore.store.favicons) {
+      this.store.favicons[host] = otherKeystore.store.favicons[host];
     }
   }
 }
