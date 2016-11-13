@@ -21,6 +21,7 @@ import Settings from 'material-ui/svg-icons/action/settings';
 import LoggedOutView from './logged-out-view.jsx';
 import UnpairedView from './unpaired-view.jsx';
 import GeneratePasswordMenu from './generate-password-menu.jsx';
+import FillPasswordMenu from './fill-password-menu.jsx';
 
 const selfpass = () => chrome.extension.getBackgroundPage().selfpass;
 
@@ -38,6 +39,12 @@ class SelfPassView extends React.Component {
 
     this.onClickBack = () => {
       this.setState({"view": null});
+    }
+
+    this.onClickMatchingSites = (credentials) => {
+      return () => {
+        this.setState({"view": <FillPasswordMenu credentials={credentials}/>})
+      };
     }
 
     this.onClickLogout = () => {
@@ -97,6 +104,7 @@ class SelfPassView extends React.Component {
                badgeContent={matchingSitesCount}
                badgeStyle={{right: 35}}
                secondary={true}/>}
+            onClick={this.onClickMatchingSites(matchingSites)}
             primaryText={"Matching Sites"}
         />;
     }

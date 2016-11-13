@@ -208,10 +208,24 @@ chrome.runtime.sendMessage({message:"login-status"}, function(response){
 
   chrome.runtime.onMessage.addListener(function(request, sender){
     console.log(request, sender);
-    if (request.message === "fill-credentials" && activeFillPair !== null) {
-      activeFillPair[0].val(request.creds.username);
-      activeFillPair[1].val(request.creds.password);
-      closeFillPopup();
+    if (request.message === "fill-credentials") {
+      if (activeFillPair !== null) {
+        activeFillPair[0].val(request.creds.username);
+        activeFillPair[1].val(request.creds.password);
+        closeFillPopup();
+      } else {
+        // This must be a request from the extension button, just
+        // fill the first form we can.
+        for (const form of $("form")) {
+          const inputs = findTargetFillInputs($(form));
+          if (inputs.length == 2) {
+            const [user, pass] = inputs;
+            user.val(request.creds.username);
+            pass.val(request.creds.password);
+            break;
+          }
+        }
+      }
     } else if (request.message === "fill-generated-password" &&
                activeGenerateElems !== null) {
       activeGenerateElems[0].val(request.password);
