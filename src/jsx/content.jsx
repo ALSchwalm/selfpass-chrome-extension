@@ -57,7 +57,7 @@ function openFillPopup(target, credentialList) {
             "build/html/fill-popup.html",
             {
               // TODO: less magic here
-              height: 50 + 80 * credentialList.length
+              height: 80 * (Object.keys(credentialList).length + 1)
             })
 }
 
