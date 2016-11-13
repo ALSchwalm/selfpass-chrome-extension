@@ -28,6 +28,9 @@ class CredentialListItem extends React.Component {
           message:"fill-credentials",
           creds: this.props.creds
         });
+        if (typeof(this.props.onTouchTap) !== "undefined") {
+          this.props.onTouchTap(e);
+        }
       }
     }
 
@@ -76,7 +79,9 @@ class FillPasswordMenu extends React.Component {
       <List>
         {Object.keys(this.props.credentials).map((username, i)=>{
            const credentials = this.props.credentials[username];
-           return <CredentialListItem creds={credentials} key={i}/>
+           return <CredentialListItem creds={credentials}
+                                      onTouchTap={this.props.onTouchTap}
+                                      key={i}/>
          })}
       </List>);
   }

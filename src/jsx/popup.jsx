@@ -43,7 +43,9 @@ class SelfPassView extends React.Component {
 
     this.onClickMatchingSites = (credentials) => {
       return () => {
-        this.setState({"view": <FillPasswordMenu credentials={credentials}/>})
+        this.setState({"view": <FillPasswordMenu credentials={credentials}
+                                                 onTouchTap={e=>window.close()}
+                               />})
       };
     }
 
