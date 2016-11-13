@@ -3,8 +3,10 @@ import ReactDOM from 'react-dom';
 import MuiThemeProvider from 'material-ui/styles/MuiThemeProvider';
 import AppBar from 'material-ui/AppBar';
 import Drawer from 'material-ui/Drawer';
+import Dialog from 'material-ui/Dialog';
 import MenuItem from 'material-ui/MenuItem';
 import TextField from 'material-ui/TextField';
+import {Table, TableBody, TableHeader, TableHeaderColumn, TableRow, TableRowColumn} from 'material-ui/Table';
 import {GridList, GridTile} from 'material-ui/GridList';
 import injectTapEventPlugin from 'react-tap-event-plugin';
 import VPNKey from 'material-ui/svg-icons/communication/vpn-key';
@@ -17,34 +19,107 @@ import UnpairedView from './unpaired-view.jsx';
 
 const selfpass = () => chrome.extension.getBackgroundPage().selfpass;
 
+class AccountsDialog extends React.Component {
+  render() {
+    return <Dialog
+               title={`Accounts for '${this.props.host}'`}
+               modal={false}
+               open={true}
+               onRequestClose={this.props.handleClose}
+           >
+        <Table selectable={false}>
+          <TableHeader displaySelectAll={false}
+                       adjustForCheckbox={false}>
+            <TableRow>
+              <TableHeaderColumn>Username</TableHeaderColumn>
+              <TableHeaderColumn>Password</TableHeaderColumn>
+              <TableHeaderColumn />
+            </TableRow>
+          </TableHeader>
+          <TableBody displayRowCheckbox={false}>
+            {Object.keys(this.props.credentials).map((username, i)=>{
+               return (
+                 <TableRow key={i}>
+                   <TableRowColumn>
+                     {username}
+                   </TableRowColumn>
+                   <TableRowColumn>
+                     {this.props.credentials[username][0].password}
+                   </TableRowColumn>
+                   <TableRowColumn>
+                     <RaisedButton>Edit</RaisedButton>
+                   </TableRowColumn>
+                 </TableRow>
+               );
+             })}
+          </TableBody>
+        </Table>
+    </Dialog>
+  }
+}
+
 class SiteGrid extends React.Component {
+  constructor(...args) {
+    super(...args);
+
+    this.state = {
+      menuCredentials: null,
+      menuHost: null
+    }
+
+    this.showPopup = (credendials, host) => {
+      this.setState({"menuCredentials": credendials});
+      this.setState({"menuHost": host});
+    }
+
+    this.handleClose = () => {
+      this.setState({"menuCredentials" : null});
+      this.setState({"menuHost" : null});
+    }
+  }
+
   render() {
     const credentialItems = this.props.credentialItems;
 
-    let numColumns = (window.innerWidth > 1000) ? 4 : 3;
+    const numColumns = (window.innerWidth > 1000) ? 4 : 3;
+
+    let dialog;
+    if (this.state.menuCredentials !== null) {
+      dialog = <AccountsDialog credentials={this.state.menuCredentials}
+                               host={this.state.menuHost}
+                               handleClose={this.handleClose} />;
+    } else {
+      dialog = <div/>
+    }
 
     return (
-      <GridList cellHeight={100}
-                cols={numColumns}>
-        {Object.keys(credentialItems).map((host, index) => {
-           var img = null;
-           if (credentialItems[host].favicon) {
-             img = <img style={{width: "24px", height:"24px", paddingRight: "10px"}}
-                        src={credentialItems[host].favicon} />;
-           }
+      <div>
+        {dialog}
+        <GridList cellHeight={100}
+                  cols={numColumns}>
+          {Object.keys(credentialItems).map((host, index) => {
+             let img = null;
+             if (credentialItems[host].favicon) {
+               img = <img style={{width: "24px", height:"24px", paddingRight: "10px"}}
+                          src={credentialItems[host].favicon} />;
+             }
 
-           const users = Object.keys(credentialItems[host].users)
-                               .reduce((combined, entry) => {
-             return combined + ", " + entry
-           });
+             const users = Object.keys(credentialItems[host].users)
+                                 .reduce((combined, entry) => {
+                                   return combined + ", " + entry
+                                 });
 
-           return <GridTile
-               key={index}
-               title={host}
-               actionIcon={img}
-               subtitle={users} />
-         })}
-      </GridList>
+             return <GridTile
+                        onTouchTap={()=>{
+                            this.showPopup(credentialItems[host].users, host)
+                          }}
+                        key={index}
+                        title={host}
+                        actionIcon={img}
+                        subtitle={users} />
+           })}
+        </GridList>
+      </div>
     )
   }
 }
