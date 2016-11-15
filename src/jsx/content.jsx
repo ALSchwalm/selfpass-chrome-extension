@@ -38,10 +38,11 @@ function openPopup(elem, id, url, css) {
     scrolling: 'no'
   }).addClass("selfpass-popup-box");
 
-  var offset = elem.offset();
+  const offset = elem.offset();
+  const leftOffset = (elem.width() < 250) ? offset.left : offset.left + elem.width() - 250;
   frame.css({
     top: (offset.top + elem.height() + 10) + "px",
-    left: offset.left + elem.width() - 250 + "px",
+    left: leftOffset + "px"
   });
 
   if (typeof(css) !== "undefined") {
