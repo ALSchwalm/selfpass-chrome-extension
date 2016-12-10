@@ -26,6 +26,11 @@ var selfpass = (function(){
     masterKey: null
   };
 
+  /**
+   * Update stored data for the logged-in user
+   * @param key {string} the key to update
+   * @param value {Object} the new value for the key
+   */
   async function updateUserData(key, value) {
     if (!isLoggedIn()) {
       throw Error("Cannot update user info before logging in");
@@ -36,11 +41,16 @@ var selfpass = (function(){
     chromep.storage.local.set(result);
   }
 
+  /**
+   * @returns {Boolean} If there is a logged-in user
+   */
   function isLoggedIn() {
     return state.masterKey !== null;
   }
 
-
+  /**
+   * @returns {Boolean} If there is a paired user
+   */
   function isPaired() {
     return !!state.paired;
   }
@@ -50,6 +60,14 @@ var selfpass = (function(){
     state.username = username_;
   }
 
+  /**
+   * Retrieves the current keystore from the server and merges it with
+   * the known keystore.
+   *
+   * @param connection {Connection} the server connection
+   * @param skipUpdate {Boolean} if 'true', the state.keystore is not updated
+   * @returns {[Keystore, string]} A pair of the retrieved keystore after/before decryption
+   */
   async function getCurrentKeystore(connection, skipUpdate) {
     const response = await connection.sendEncryptedRequest("retrieve-keystore",
                                                            {"current":state.lastKeystoreTag});
@@ -76,6 +94,13 @@ var selfpass = (function(){
     return [parsedKeystore, encryptedKeystore];
   }
 
+  /**
+   * Sends the 'keystore' to the server. If this keystore is outdated, the
+   * current keystore is automatically retrieved and merged.
+   *
+   * @param connection {Connection} the server connection
+   * @param keystore {Keystore} the keystore to send
+   */
   async function sendUpdatedKeystore(connection, keystore) {
     if (!isLoggedIn()) {
       throw Error("Cannot sendUpdatedKeystore before logging in.");
@@ -108,6 +133,14 @@ var selfpass = (function(){
     }
   }
 
+  /**
+   * Login an account that has not previously logged in. In this case, we have no
+   * keystore to verify that the provided master key is correct.
+   *
+   * @param connection {Connection} the connection to the server
+   * @param masterKey {string} the user-provided master key
+   * @returns {Boolean} true if login succeeds otherwise false
+   */
   async function loginFirstTime(connection, masterKey_) {
     if (!isPaired()) {
       throw Error("Cannot login before pairing.");
@@ -132,6 +165,12 @@ var selfpass = (function(){
     return true;
   }
 
+  /**
+    * Login an account that has been previously logged in to.
+    *
+    * @param masterKey {string} the user-provided master key
+    * @returns {Boolean} true if login succeeds otherwise false
+    */
   async function login(masterKey_) {
     if (!isPaired()) {
       throw Error("Cannot login before pairing.");
@@ -170,6 +209,14 @@ var selfpass = (function(){
     }
   }
 
+  /**
+   * Generate the IDs and keys needed for pairing. This includes the
+   * long-lived ECDSA keys that are used to sign future messages.
+   *
+   * @param combinedAccessKey {string} The access key provided by the server to pair this device
+   * @param username {string}
+   * @returns {[userID, deviceID, expandedAccessKey, clientKeys, payload]}
+   */
   async function generatePairingInfo(combinedAccessKey, username) {
     const userID = await cryptography.sha256(username);
     const deviceID = cryptography.generateDeviceID();
@@ -199,6 +246,15 @@ var selfpass = (function(){
     return [userID, deviceID, expandedAccessKey, clientKeys, payload];
   }
 
+  /**
+   * Pair this devices with a server. After pairing, the user is automatically
+   * logged-in.
+   *
+   * @param combinedAccessKey {string} The access key provided by the server for this device
+   * @param remoteServerLocation {string} The server URL
+   * @param username {string}
+   * @param masterKey {string} The user provided master key
+   */
   async function pairDevice(combinedAccessKey,
                             remoteServerLocation,
                             username,
@@ -233,10 +289,22 @@ var selfpass = (function(){
                        serverPubKey);
     state.paired = true;
     console.log("Pairing complete");
+
+    // Ensure that the info we saved is loaded in to the active state before login
     await startup();
     login(masterKey);
   }
 
+  /**
+   * Save the information from the pairing process.
+   *
+   * @param serverAddress {string} The server URL
+   * @param username {string}
+   * @param userID {string}
+   * @param deviceID {string}
+   * @param userKeys {ECDSAKeys} The users's long-lived ECDSA keys
+   * @param serverPubKey {ECDSAKey} The server's long-lived ECDSA public key
+   */
   async function savePairInfo(serverAddress, username, userID, deviceID,
                               userKeys, serverPubKey) {
     const exportedUserPub =
@@ -270,6 +338,9 @@ var selfpass = (function(){
     console.log("Saved pairing parameters");
   }
 
+  /**
+   * Unpair this device from the server (and logout)
+   */
   function unpair() {
     if (isLoggedIn()) {
       logout();
@@ -279,12 +350,18 @@ var selfpass = (function(){
     state.paired = false;
   }
 
+  /**
+   * Log out the current user
+   */
   function logout() {
     state.masterKey = null;
     state.keystore = null;
     console.log("Logged out.");
   }
 
+  /**
+   * Load the stored parameters/state into the active state.
+   */
   async function startup() {
     const result = await chromep.storage.local.get("connectionData");
     const connectionData = result.connectionData;
@@ -355,8 +432,11 @@ var selfpass = (function(){
                                       state.serverPubKey);
   }
 
+  // Do first-time startup
   startup();
 
+  // Setup dispatches for the messages sent/received from the popup
+  // box and browser tabs.
   chrome.runtime.onMessage.addListener(function(request, sender, sendResponse){
     console.log(request, sender);
     if (request.message === "get-credentials") {

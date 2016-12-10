@@ -1,5 +1,32 @@
 import URL from "url-parse";
 
+/**
+ * A simple class that provides an interface for storing and
+ * updating a per-domain, per-user history of credentials. This
+ * data is stored as follows:
+ *
+ * {
+ *   hosts: {
+ *     "host1": {
+ *       "username1": [
+ *          {
+ *             host: "host1",
+ *             url: "www.host1.com/foo/bar",
+ *             username: "username1",
+ *             password: "example",
+ *             time: 1481403832
+ *          }
+ *       ]
+ *     }
+ *   },
+ *   favicons: {
+ *     "host1": "ZXhhbXBsZQ=="
+ *   }
+ * }
+ *
+ * The list associated with a username will be referred to as a
+ * 'credential history' in this documentation.
+ */
 class Keystore {
   constructor(store) {
     if (typeof(store) === "undefined") {
@@ -12,6 +39,12 @@ class Keystore {
     }
   }
 
+  /**
+   * @param url {string} The login url
+   * @param username {string}
+   * @param password {string}
+   * @param favicon {Optional[string]} The base64 encoded favicon
+   */
   addCredentials(url, username, password, favicon) {
     const host = new URL(url).host;
     const entry = {
@@ -35,12 +68,20 @@ class Keystore {
     }
   }
 
+  /**
+   * A generator yielding pairs of host and credential histories for
+   * each username associated with that host.
+   */
   *credentials() {
     for (const host in this.store.hosts) {
       yield [host, this.store.hosts[host]];
     }
   }
 
+  /**
+   * A generator yielding pairs of host and the current credentials
+   * for each user associated with that host.
+   */
   *currentCredentials() {
     for (const host in this.store.hosts) {
       const currentCredentials = {};
@@ -52,6 +93,11 @@ class Keystore {
     }
   }
 
+  /**
+   * @param url {string}
+   * @returns The credential histories of each user associated with
+   *          the host matching 'url', or 'null' if none.
+   */
   credentialsMatching(url) {
     const host = new URL(url).host;
 
@@ -61,6 +107,11 @@ class Keystore {
     return null;
   }
 
+  /**
+   * @param url {string}
+   * @returns The current credentials of each user associated with
+   *          the host matching 'url', or 'null' if none.
+   */
   currentCredentialsMatching(url) {
     const host = new URL(url).host;
     if (typeof(this.store.hosts[host]) !== "undefined") {
@@ -74,10 +125,17 @@ class Keystore {
     return null;
   }
 
+  /**
+   * @returns A strings representation of this keystore
+   */
   serialize() {
     return JSON.stringify(this.store);
   }
 
+  /**
+   * Removes all histories of any users associated with 'url'.
+   * @param url {string}
+   */
   removeSite(url){
     const host = new URL(url).host;
 
@@ -118,6 +176,11 @@ class Keystore {
     return mergedHistory;
   }
 
+  /**
+   * Merges this keystore with another keystore. The resulting keystore
+   * will have merged hosts, users, favicons and histories.
+   * @param otherKeystore {Keystore}
+   */
   merge(otherKeystore) {
     for (const host in otherKeystore.store.hosts) {
       if (typeof(this.store.hosts[host]) === "undefined") {
